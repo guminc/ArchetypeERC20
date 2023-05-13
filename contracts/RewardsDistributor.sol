@@ -49,16 +49,19 @@ struct WeightedRewardedAuctionConfig {
 struct RewardedNftHoldingConfig {
 	bool isEnabled;
 	address nftContract;
-	uint256 rewardsWeightPerDay; // Bps
+	uint256 rewardsWeightPerDay; // In Wei
 	uint256 rewardsDistributionStarted;
 	mapping (uint40 => uint40) lastTimeClaimed;
 }
 
 contract RewardsDistributor {
     
-    mapping (address => RewardedNftHoldingConfig) nftHoldingRewardsConfigFor;
-    mapping (address => WeightedRewardedAuctionConfig) auctionRewardsConfigFor;
-   
+    mapping (address => RewardedNftHoldingConfig) public nftHoldingRewardsConfigFor;
+    mapping (address => WeightedRewardedAuctionConfig) public auctionRewardsConfigFor;
+    
+    // TODO Make config method for already existing ERC20's that dont implement
+    // the IRewardToken interface.
+
 	function configureWeightedAuctionRewards(
         address rewardToken,
 		uint256 rewardWeight,
@@ -97,7 +100,7 @@ contract RewardsDistributor {
         address rewardToken,
         address nftToHold,
         uint256 rewardsWeightPerDay
-    ) external {
+    ) public {
         require(Ownable(rewardToken).owner() == msg.sender);
         RewardedNftHoldingConfig storage conf = nftHoldingRewardsConfigFor[rewardToken];
         conf.isEnabled = true;
@@ -126,7 +129,6 @@ contract RewardsDistributor {
     function claimWeightedAuctionRewards(
 		address rewardToken, bytes32[] memory proof, uint96 timesConditionMet
 	) public {
-        IRewardToken token = IRewardToken(rewardToken);
 		WeightedRewardedAuctionConfig storage conf = auctionRewardsConfigFor[rewardToken];
 
 		if (!conf.isEnabled) revert RewardModelDisabled();
@@ -138,8 +140,8 @@ contract RewardsDistributor {
 			timesConditionMet = 0;
 		
         _tryToReward(
-            token, 
-            min(_calcAuctionRewards(conf, timesConditionMet, shares), token.rewardsLeftToMint()),
+            rewardToken, 
+            _calcAuctionRewards(conf, timesConditionMet, shares),
             msg.sender
         );
 	}
@@ -154,14 +156,13 @@ contract RewardsDistributor {
 	function claimRewardsForNftsHeld(
 		address rewardToken, uint16[] calldata ids
 	) public {
-        IRewardToken token = IRewardToken(rewardToken);
 		RewardedNftHoldingConfig storage conf = nftHoldingRewardsConfigFor[rewardToken];
 
 		if (!conf.isEnabled) revert RewardModelDisabled();
 
 		uint256 amountToClaim;
 
-		for (uint16 i; i < ids.length; ) {
+		for (uint16 i; i < ids.length; i++) {
 			if (IERC721(conf.nftContract).ownerOf(ids[i]) != msg.sender)
 				revert OwnershipError(conf.nftContract, ids[i]);
 
@@ -169,7 +170,7 @@ contract RewardsDistributor {
 			conf.lastTimeClaimed[ids[i]] = SafeCastLib.toUint40(block.timestamp);
 		}
 	    
-        _tryToReward(token, amountToClaim, msg.sender);
+        _tryToReward(rewardToken, amountToClaim, msg.sender);
 	}
     
     /**
@@ -180,42 +181,55 @@ contract RewardsDistributor {
      * necessarily implement the `IRewardToken` interface.
      */
     function _tryToReward(
-        IRewardToken rewardToken, uint256 amountToClaim, address to 
+        address rewardToken, uint256 amountToClaim, address to 
     ) private {
-		amountToClaim = min(amountToClaim, rewardToken.rewardsLeftToMint());
-        uint256 availableRewards = min(rewardToken.balanceOf(address(this)), amountToClaim);
+        IRewardToken token = IRewardToken(rewardToken);
+        uint256 availableRewards = min(token.balanceOf(address(this)), amountToClaim);
 
         if (availableRewards > 0) {
-            rewardToken.transfer(to, availableRewards);
+            token.transfer(to, availableRewards);
             amountToClaim -= availableRewards;
         }
-        if (amountToClaim > 0 && rewardToken.isRewardsMinter(address(this))) {
-            uint256 amountToMint = min(amountToClaim, rewardToken.rewardsLeftToMint());
+        
+        if (amountToClaim > 0 && token.isRewardsMinter(address(this))) {
+            uint256 amountToMint = min(amountToClaim, token.rewardsLeftToMint());
             if (amountToMint == 0) return;
-            rewardToken.mintRewards(to, amountToMint);
+            token.mintRewards(to, amountToMint);
         }
     }
 
     /********************\
 	|* Helper Functions *|
 	\********************/
-	function max(uint256 a, uint256 b) public pure returns (uint256) {
-		return a >= b ? a : b;
-	}
 
-	function min(uint256 a, uint256 b) public pure returns (uint256) {
-		return a >= b ? b : a;
-	}
-    
-    // TODO Test if the following helper functions cost a lot of gas :(.
+    function lastTimeClaimed(address rewardToken, uint16 id) public view returns (uint256) {
+		RewardedNftHoldingConfig storage conf = nftHoldingRewardsConfigFor[rewardToken];
+        return conf.lastTimeClaimed[id];
+    }
+
+    function calcNftHoldingRewards(
+        address rewardToken, uint40 id
+    ) public view returns (uint256) {
+		return _calcNftHoldingRewards(nftHoldingRewardsConfigFor[rewardToken], id);
+    }
+
     /*
-     * @dev Computes the rewards for a single `config.nftContract`
-     * with token id `id`.
+     * @dev Computes the rewards for a single `config.nftContract` with token id `id`.
      */
     function _calcNftHoldingRewards(
-        RewardedNftHoldingConfig storage config, uint16 id
+        RewardedNftHoldingConfig storage conf, uint40 id
     ) internal view returns (uint256) {
-		return _timeSinceLastClaim(config, id) * config.rewardsWeightPerDay / 1 days;
+        uint256 timePassedSinceLastClaim = block.timestamp - max(
+            conf.rewardsDistributionStarted, conf.lastTimeClaimed[id]
+        );
+		return timePassedSinceLastClaim * conf.rewardsWeightPerDay / 1 days;
+    }
+
+    function getRewardsDistributionStarted(
+        address rewardToken
+    ) public view returns (uint256) {
+		RewardedNftHoldingConfig storage conf = nftHoldingRewardsConfigFor[rewardToken];
+        return conf.rewardsDistributionStarted;
     }
 
     function _calcAuctionRewards(
@@ -227,18 +241,6 @@ contract RewardsDistributor {
 		);
 	}
 
-    /**
-     * @dev It will return the time passed since the last claim for an
-     * `config.nftContract` with token id `id`.
-     */
-    function _timeSinceLastClaim(
-        RewardedNftHoldingConfig storage config, uint16 id
-    ) private view returns (uint256) {
-        return block.timestamp - max(
-            config.rewardsDistributionStarted, config.lastTimeClaimed[id]
-        );
-    }
-
 	function verify(
 		bytes32[] memory proof, address bidder, uint96 timesConditonMet, bytes32 root
 	) public pure returns (bool) {
@@ -247,4 +249,12 @@ contract RewardsDistributor {
 			proof, root, keccak256(abi.encodePacked(bidder, timesConditonMet))
 		);
     }
+
+	function max(uint256 a, uint256 b) public pure returns (uint256) {
+		return a >= b ? a : b;
+	}
+
+	function min(uint256 a, uint256 b) public pure returns (uint256) {
+		return a >= b ? b : a;
+	}
 }

@@ -5,6 +5,8 @@
     "hardhat": "^2.14.0"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^4.8.3"
+    "@openzeppelin/contracts": "^4.8.3",
+    "fp-ts": "^2.15.0",
+    "solady": "^0.0.92"
   }
 }
