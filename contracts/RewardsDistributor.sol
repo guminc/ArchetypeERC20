@@ -46,6 +46,8 @@ struct WeightedRewardedAuctionConfig {
  * rewards were configured so `lastTimeCreated` can be computed.
  * @param lastTimeClaimed Will return when was the last time that
  * the rewards for a token id were claimed.
+ * @param timeRewardsEnabled will return when a NFT was enabled to be rewarded.
+ * This mapping is used for NFT's that dont implement the `IMintTimeSaver` interface.
  */
 struct RewardedNftHoldingConfig {
 	bool isEnabled;
@@ -53,6 +55,7 @@ struct RewardedNftHoldingConfig {
 	uint256 rewardsWeightPerDay; // In Wei
 	uint256 rewardsDistributionStarted;
 	mapping (uint40 => uint40) lastTimeClaimed;
+    mapping (uint256 => uint256) timeRewardsEnabled;
 }
 
 contract RewardsDistributor {
@@ -147,6 +150,19 @@ contract RewardsDistributor {
         );
 	}
 
+    /**
+     * @dev if `conf.nftContract` doesn't implement `IMintTimeSaver` then this method
+     * needs to be called with the `ids` the owner wants to be rewarded.
+     */
+    function enableNftRewardsFor(address rewardToken, uint16[] calldata ids) public {
+		RewardedNftHoldingConfig storage conf = nftHoldingRewardsConfigFor[rewardToken];
+
+		for (uint16 i; i < ids.length; i++) {
+			if (conf.timeRewardsEnabled[ids[i]] > 0)
+				revert OwnershipError(conf.nftContract, ids[i]);
+            conf.timeRewardsEnabled[ids[i]] = block.timestamp;
+        }
+    }
 
     // TODO hard test this, its dangerous code
 	/**
@@ -209,9 +225,11 @@ contract RewardsDistributor {
     }
 
     function calcNftHoldingRewards(
-        address rewardToken, uint40 id
-    ) public view returns (uint256) {
-		return _calcNftHoldingRewards(nftHoldingRewardsConfigFor[rewardToken], id);
+        address rewardToken, uint40[] calldata ids
+    ) public view returns (uint256 rewards) {
+        RewardedNftHoldingConfig storage conf = nftHoldingRewardsConfigFor[rewardToken];
+		for (uint16 i; i < ids.length; i++)
+            rewards += _calcNftHoldingRewards(conf, ids[i]);
     }
     
     /*
@@ -220,7 +238,8 @@ contract RewardsDistributor {
     function _calcNftHoldingRewards(
         RewardedNftHoldingConfig storage conf, uint40 id
     ) internal view returns (uint256) {
-        uint256 mintTime = IMintTimeSaver(conf.nftContract).getMintTimeFor(id);
+        uint256 mintTime = conf.timeRewardsEnabled[id] > 0 ? 
+            conf.timeRewardsEnabled[id] : IMintTimeSaver(conf.nftContract).getMintTimeFor(id);
         uint256 lastClaim = max(conf.rewardsDistributionStarted, conf.lastTimeClaimed[id]);
         return (block.timestamp - max(mintTime, lastClaim)) * conf.rewardsWeightPerDay / 1 days;
     }
