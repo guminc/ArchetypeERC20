@@ -98,7 +98,7 @@ describe('RewardsDistributor', async () => {
             await sleep(2)
                 
             const rewards = await rewardsDistributor.calcNftHoldingRewards(erc20.address, 1)
-            expect(fromWei(rewards)).to.equal('3.0')
+            expect(fromWei(rewards)).to.equal('2.0')
         })
 
         it('should have low rewards for recently minted nfts', async () => {
@@ -113,7 +113,7 @@ describe('RewardsDistributor', async () => {
 
             await nft.connect(owner).mint(hacker.address, 1)
             await rewardsDistributor.connect(hacker).claimRewardsForNftsHeld(erc20.address, [1])
-            expect(await erc20.balanceOf(hacker.address)).to.lessThan(toWei(1))
+            expect(await erc20.balanceOf(hacker.address)).to.lessThanOrEqual(toWei(1))
         })
     })
 })

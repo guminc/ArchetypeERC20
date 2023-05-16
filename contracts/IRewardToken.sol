@@ -4,7 +4,7 @@ pragma solidity ^0.8.11;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-interface IRewardToken is IERC20{
+interface IRewardToken is IERC20 {
     /**
      * @dev External function so `msg.sender` can mint 
      * the token iff `isMinter(msg.sender)`.

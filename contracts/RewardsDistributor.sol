@@ -8,6 +8,7 @@ import "solady/src/utils/SafeCastLib.sol";
 import "solady/src/utils/MerkleProofLib.sol";
 import "../lib/ArchetypeAuction/contracts/ISharesHolder.sol";
 import "./IRewardToken.sol";
+import "./IMintTimeSaver.sol";
 
 error RewardModelDisabled();
 error MaxSupplyExceded(address rewardToken);
@@ -212,17 +213,16 @@ contract RewardsDistributor {
     ) public view returns (uint256) {
 		return _calcNftHoldingRewards(nftHoldingRewardsConfigFor[rewardToken], id);
     }
-
+    
     /*
      * @dev Computes the rewards for a single `config.nftContract` with token id `id`.
      */
     function _calcNftHoldingRewards(
         RewardedNftHoldingConfig storage conf, uint40 id
     ) internal view returns (uint256) {
-        uint256 timePassedSinceLastClaim = block.timestamp - max(
-            conf.rewardsDistributionStarted, conf.lastTimeClaimed[id]
-        );
-		return timePassedSinceLastClaim * conf.rewardsWeightPerDay / 1 days;
+        uint256 mintTime = IMintTimeSaver(conf.nftContract).getMintTimeFor(id);
+        uint256 lastClaim = max(conf.rewardsDistributionStarted, conf.lastTimeClaimed[id]);
+        return (block.timestamp - max(mintTime, lastClaim)) * conf.rewardsWeightPerDay / 1 days;
     }
 
     function getRewardsDistributionStarted(
