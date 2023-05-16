@@ -1,21 +1,20 @@
 import { ethers } from 'hardhat';
 import { expect } from 'chai';
 
-import { 
+import {
+    DEPLOYMENT_TIME,
     OptPartialApplierRes,
     conditionalPartialApplier,
     getRandomFundedAccount,
-    rewardingForArchetypeHoldingFactory,
-    rewardingForHoldingFactory 
+    rewardingForHoldingFactory
 } from '../scripts/helpers'
 import { RewardsDistributor } from '../typechain-types';
 import { getLastTimestamp, sleep, toWei, fromWei } from '../lib/ArchetypeAuction/scripts/helpers';
 import { snd } from 'fp-ts/lib/ReadonlyTuple';
 
 describe('RewardsDistributor', async () => {
-    
+
     let nftAndRewardTokenFactory: OptPartialApplierRes<typeof rewardingForHoldingFactory>
-    let archetypeNftAndRewardTokenFactory: OptPartialApplierRes<typeof rewardingForArchetypeHoldingFactory>
     let REWARDS_DISTRIBUTOR: RewardsDistributor
 
     before(async () => {
@@ -25,16 +24,12 @@ describe('RewardsDistributor', async () => {
 
         REWARDS_DISTRIBUTOR = await ethers.getContractFactory('RewardsDistributor')
             .then(f => f.deploy())
-        
+
         nftAndRewardTokenFactory = conditionalPartialApplier(
             USE_SAME_REWARDS_DISTRIBUTOR_FOR_ALL_TESTS, rewardingForHoldingFactory
-        )({rewardsDistributor: REWARDS_DISTRIBUTOR})
-
-        archetypeNftAndRewardTokenFactory = conditionalPartialApplier(
-            USE_SAME_REWARDS_DISTRIBUTOR_FOR_ALL_TESTS, rewardingForArchetypeHoldingFactory
-        )({rewardsDistributor: REWARDS_DISTRIBUTOR})
+        )({ rewardsDistributor: REWARDS_DISTRIBUTOR })
     })
-    
+
     /**
      * @dev System case analyzed in this `describe` block:
      * - It's using an already existing erc20 token as rewards, that means that the
@@ -68,7 +63,7 @@ describe('RewardsDistributor', async () => {
                 const conf = await rewardsDistributor.nftHoldingRewardsConfigFor(erc20.address)
                 expect(expectedStart).to.equal(conf.rewardsDistributionStarted)
             })
-            
+
         })
 
         it('shouldn\'t allow claiming rewards if contract is empty', async () => {
@@ -103,150 +98,208 @@ describe('RewardsDistributor', async () => {
         })
 
         it('should be able to calc deserved rewards', async () => {
-            const { rewardsDistributor, erc20, nft, owner } = await nftAndRewardTokenFactory({
-                rewardsPerSecond: 1
-            })
-    
+            const rewardsPerSecond = 1
+            const { 
+                rewardsDistributor, erc20, nft, owner 
+            } = await nftAndRewardTokenFactory({rewardsPerSecond})
+            const iniTime = await getLastTimestamp()
+
             const rewardedUser = await getRandomFundedAccount()
             await nft.connect(owner).mint(rewardedUser.address, 1)
 
-            await rewardsDistributor.connect(rewardedUser).enableNftRewardsFor(erc20.address, [1]);
             await sleep(2)
-                
+
             const rewards = await rewardsDistributor.calcNftHoldingRewards(erc20.address, [1])
-            expect(fromWei(rewards)).to.equal('2.0')
+            const expectedRewards = (await getLastTimestamp() - iniTime) * rewardsPerSecond
+            expect(rewards).to.equal(toWei(expectedRewards))
         })
 
-        it('should have low rewards for recently minted nfts', async () => {
-            const { rewardsDistributor, erc20, nft, owner } = await nftAndRewardTokenFactory({
-                rewardsPerSecond: 1
-            })
+        it('shouldn\'t have low rewards for recently minted nfts', async () => {
+            const rewardsPerSecond = 1
+            const { 
+                rewardsDistributor, erc20, nft, owner
+            } = await nftAndRewardTokenFactory({rewardsPerSecond})
+            const iniTime = await getLastTimestamp()
 
             await erc20.connect(owner).transfer(rewardsDistributor.address, toWei(15))
             const hacker = await getRandomFundedAccount()
-        
+
             await sleep(2)
 
             await nft.connect(owner).mint(hacker.address, 1)
-            await rewardsDistributor.connect(hacker).enableNftRewardsFor(erc20.address, [1]);
             await rewardsDistributor.connect(hacker).claimRewardsForNftsHeld(erc20.address, [1])
-            expect(await erc20.balanceOf(hacker.address)).to.lessThanOrEqual(toWei(1))
+            
+            const expectedBalance = (await getLastTimestamp() - iniTime) * rewardsPerSecond
+
+            expect(await erc20.balanceOf(hacker.address)).to.equal(toWei(expectedBalance))
         })
 
         it('shouldn\'t be able to claim same id twice in same tx', async () => {
-            const { rewardsDistributor, erc20, nft, owner } = await nftAndRewardTokenFactory({
-                rewardsPerSecond: 1
-            })
+            const rewardsPerSecond = 1
+            const { 
+                rewardsDistributor, erc20, nft, owner
+            } = await nftAndRewardTokenFactory({rewardsPerSecond})
+            const iniTime = await getLastTimestamp()
+
             await erc20.connect(owner).transfer(rewardsDistributor.address, toWei(15))
             const hacker = await getRandomFundedAccount()
             await nft.connect(owner).mint(hacker.address, 1)
-            await rewardsDistributor.connect(hacker).enableNftRewardsFor(erc20.address, [1])
-            
+
             await sleep(1)
 
             await rewardsDistributor.connect(hacker).claimRewardsForNftsHeld(
                 erc20.address, new Array(10).fill(1)
             )
 
-            expect(await erc20.balanceOf(hacker.address)).to.lessThanOrEqual(toWei(2))
+            const expectedBalance = (await getLastTimestamp() - iniTime) * rewardsPerSecond
+            expect(await erc20.balanceOf(hacker.address)).to.equal(toWei(expectedBalance))
+        })
+
+        it('should have claim time updated', async () => {
+            const rewardsPerSecond = 1
+            const { 
+                rewardsDistributor, erc20, nft, owner
+            } = await nftAndRewardTokenFactory({rewardsPerSecond})
+
+            await erc20.connect(owner).transfer(rewardsDistributor.address, toWei(15))
+            const rewardedUser=  await getRandomFundedAccount()
+            await nft.connect(owner).mint(rewardedUser.address, 1)
+            
+
+            await rewardsDistributor.connect(rewardedUser).claimRewardsForNftsHeld(erc20.address, [1])
+            const claimTime = await getLastTimestamp()
+            expect(await rewardsDistributor.lastTimeClaimed(erc20.address, 1)).to.equal(claimTime)
+            
+        })
+
+        it('shouldn\'t be able to claim same id mutiple times', async () => {
+            const rewardsPerSecond = 1
+            const { 
+                rewardsDistributor, erc20, nft, owner
+            } = await nftAndRewardTokenFactory({rewardsPerSecond, rewardTokenSupply: 300})
+            const iniTime = await getLastTimestamp()
+
+            await erc20.connect(owner).transfer(rewardsDistributor.address, toWei(300))
+            const hacker = await getRandomFundedAccount()
+            await nft.connect(owner).mint(hacker.address, 1)
+            
+            await sleep(5)
+            await rewardsDistributor.connect(hacker).claimRewardsForNftsHeld(erc20.address, [1])
+            
+            const firstClaimTime = await getLastTimestamp()
+            const expectedFirstClaim = (firstClaimTime - iniTime) * rewardsPerSecond
+            const firstTimeBal = await erc20.balanceOf(hacker.address)
+            expect(firstTimeBal).to.equal(toWei(expectedFirstClaim))
+
+            await sleep(2)
+            await rewardsDistributor.connect(hacker).claimRewardsForNftsHeld(erc20.address, [1])
+
+            const expectedSecondClaim = (await getLastTimestamp() - firstClaimTime) * rewardsPerSecond
+            expect(await erc20.balanceOf(hacker.address)).to.equal(
+                toWei(expectedSecondClaim).add(firstTimeBal)
+            )
+        })
+
+        it('shouldn\'t break on empty claim', async () => {
+            const { rewardsDistributor, erc20, owner } = await nftAndRewardTokenFactory({})
+            await erc20.connect(owner).transfer(rewardsDistributor.address, toWei(15))
+
+            const hacker = await getRandomFundedAccount()
+            await rewardsDistributor.connect(hacker).claimRewardsForNftsHeld(erc20.address, [])
+            expect(await erc20.balanceOf(rewardsDistributor.address)).to.equal(toWei(15))
         })
 
         it('should allow rewards on multiple nfts', async () => {
-            const { rewardsDistributor, erc20, nft, owner } = await nftAndRewardTokenFactory({
-                rewardsPerSecond: 1
-            })
+            const rewardsPerSecond = 1
+            const { 
+                rewardsDistributor, erc20, nft, owner
+            } = await nftAndRewardTokenFactory({rewardsPerSecond})
+            const iniTime = await getLastTimestamp()
 
-            await erc20.connect(owner).transfer(rewardsDistributor.address, toWei(15))
+            await erc20.connect(owner).transfer(rewardsDistributor.address, toWei(30))
             const rewardedUser = await getRandomFundedAccount()
             const ownedIds = [1, 31, 59]
-            
+
             for (const id of ownedIds)
                 await nft.connect(owner).mint(rewardedUser.address, id)
-
-            await rewardsDistributor.connect(rewardedUser).enableNftRewardsFor(erc20.address, ownedIds)
 
             await sleep(2)
 
             await rewardsDistributor.connect(rewardedUser).claimRewardsForNftsHeld(
                 erc20.address, ownedIds
             )
-            
-            const expectedRewards = 9 // (2 seconds + 1 tx second) * 3 tokens
+
+            const expectedRewards = (await getLastTimestamp() - iniTime) 
+                * rewardsPerSecond * ownedIds.length
 
             expect(await erc20.balanceOf(rewardedUser.address)).to.equal(toWei(expectedRewards))
         })
 
         it('should allow multiple rewards on multiple nfts', async () => {
-            const { rewardsDistributor, erc20, nft, owner } = await nftAndRewardTokenFactory({
-                rewardsPerSecond: 1
-            })
+            const rewardsPerSecond = 3
+            const { 
+                rewardsDistributor, erc20, nft, owner
+            } = await nftAndRewardTokenFactory({rewardsPerSecond, rewardTokenSupply: 600})
+            const iniTime = await getLastTimestamp()
 
-            await erc20.connect(owner).transfer(rewardsDistributor.address, toWei(30))
+            await erc20.connect(owner).transfer(rewardsDistributor.address, toWei(600))
 
             const holder1 = await getRandomFundedAccount()
             const holder2 = await getRandomFundedAccount()
             const holder3 = await getRandomFundedAccount()
 
-            const fromOwnerToIds: {[key: string]: number[]} = {
-                [holder1.address]: [1, 13, 10], 
+            const fromOwnerToIds: { [key: string]: number[] } = {
+                [holder1.address]: [1, 13, 10],
                 [holder2.address]: [34, 128],
                 [holder3.address]: [7, 9]
             }
 
-            const ids = Object.entries(fromOwnerToIds).flatMap(snd)
-            
             for (const [addr, ids] of Object.entries(fromOwnerToIds))
                 for (const id of ids)
                     await nft.connect(owner).mint(addr, id)
 
-            await rewardsDistributor.enableNftRewardsFor(erc20.address, ids)
-
             await sleep(1)
             
+            // Claiming for holder1
             await rewardsDistributor.connect(holder1).claimRewardsForNftsHeld(
                 erc20.address, fromOwnerToIds[holder1.address]
             )
             
-            expect(await erc20.balanceOf(holder1.address)).to.equal(toWei(6))
-            expect(await rewardsDistributor.calcNftHoldingRewards(
-                erc20.address, fromOwnerToIds[holder2.address]
-            )).to.equal(toWei(4));
-            expect(await rewardsDistributor.calcNftHoldingRewards(
-                erc20.address, fromOwnerToIds[holder3.address]
-            )).to.equal(toWei(4));
-
+            const holder1claimTime = await getLastTimestamp()
+            const expectedRewards1 = (holder1claimTime - iniTime) 
+                * fromOwnerToIds[holder1.address].length * rewardsPerSecond
+            const holder1firstBal = await erc20.balanceOf(holder1.address)
+            expect(holder1firstBal).to.equal(toWei(expectedRewards1))
+            
+            // Claiming for holder2
             await rewardsDistributor.connect(holder2).claimRewardsForNftsHeld(
                 erc20.address, fromOwnerToIds[holder2.address]
             )
 
-            expect(await rewardsDistributor.calcNftHoldingRewards(
-                erc20.address, fromOwnerToIds[holder1.address]
-            )).to.equal(toWei(3));
-            expect(await erc20.balanceOf(holder1.address)).to.equal(toWei(6))
-            expect(await rewardsDistributor.calcNftHoldingRewards(
-                erc20.address, fromOwnerToIds[holder3.address]
-            )).to.equal(toWei(6));
+            const expectedRewards2 = (await getLastTimestamp() - iniTime) 
+                * fromOwnerToIds[holder2.address].length * rewardsPerSecond
+            expect(await erc20.balanceOf(holder2.address)).to.equal(toWei(expectedRewards2))
 
+            // Claiming for holder3
             await rewardsDistributor.connect(holder3).claimRewardsForNftsHeld(
                 erc20.address, fromOwnerToIds[holder3.address]
             )
 
-            expect(await erc20.balanceOf(holder1.address)).to.equal(toWei(6))
-            expect(await erc20.balanceOf(holder2.address)).to.equal(toWei(6))
-            expect(await erc20.balanceOf(holder3.address)).to.equal(toWei(8))
-        })
-    })
+            const expectedRewards3 = (await getLastTimestamp() - iniTime) 
+                * fromOwnerToIds[holder3.address].length * rewardsPerSecond
+            expect(await erc20.balanceOf(holder3.address)).to.equal(toWei(expectedRewards3))
 
-    /**
-     * @dev System case analyzed in this `describe` block:
-     * - It's using an already existing erc20 token as rewards, that means that the
-     *   erc20 owner has to fund the contract so the reward distributions work.
-     * - It's using the Archetype NFT, the last versions that implements `IMintTimeSaver`.
-     *   That means theres no need to call `enableNftRewardsFor`.
-     */
-    describe('distributing rewards for archetype nfts', async () => {
-        it.only('should allow rewards on archetype nfts', async () => {
-            expect(1).to.equal(1); 
+            // Claiming for holder1 again
+            await rewardsDistributor.connect(holder1).claimRewardsForNftsHeld(
+                erc20.address, fromOwnerToIds[holder1.address]
+            )
+                
+            const finalRewards = (await getLastTimestamp() - holder1claimTime)
+                * fromOwnerToIds[holder1.address].length * rewardsPerSecond
+            expect(await erc20.balanceOf(holder1.address)).to.equal(
+                toWei(finalRewards).add(holder1firstBal)
+            )
+
         })
     })
 })

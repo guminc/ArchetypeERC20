@@ -8,7 +8,6 @@ import "solady/src/utils/SafeCastLib.sol";
 import "solady/src/utils/MerkleProofLib.sol";
 import "../lib/ArchetypeAuction/contracts/ISharesHolder.sol";
 import "./IRewardToken.sol";
-import "./IMintTimeSaver.sol";
 
 error RewardModelDisabled();
 error MaxSupplyExceded(address rewardToken);
@@ -46,16 +45,13 @@ struct WeightedRewardedAuctionConfig {
  * rewards were configured so `lastTimeCreated` can be computed.
  * @param lastTimeClaimed Will return when was the last time that
  * the rewards for a token id were claimed.
- * @param timeRewardsEnabled will return when a NFT was enabled to be rewarded.
- * This mapping is used for NFT's that dont implement the `IMintTimeSaver` interface.
  */
 struct RewardedNftHoldingConfig {
 	bool isEnabled;
 	address nftContract;
 	uint256 rewardsWeightPerDay; // In Wei
 	uint256 rewardsDistributionStarted;
-	mapping (uint40 => uint40) lastTimeClaimed;
-    mapping (uint256 => uint256) timeRewardsEnabled;
+	mapping (uint40 => uint256) lastTimeClaimed;
 }
 
 contract RewardsDistributor {
@@ -150,20 +146,6 @@ contract RewardsDistributor {
         );
 	}
 
-    /**
-     * @dev if `conf.nftContract` doesn't implement `IMintTimeSaver` then this method
-     * needs to be called with the `ids` the owner wants to be rewarded.
-     */
-    function enableNftRewardsFor(address rewardToken, uint16[] calldata ids) public {
-		RewardedNftHoldingConfig storage conf = nftHoldingRewardsConfigFor[rewardToken];
-
-		for (uint16 i; i < ids.length; i++) {
-			if (conf.timeRewardsEnabled[ids[i]] > 0)
-				revert OwnershipError(conf.nftContract, ids[i]);
-            conf.timeRewardsEnabled[ids[i]] = block.timestamp;
-        }
-    }
-
     // TODO hard test this, its dangerous code
 	/**
      * @dev This method will reward `msg.sender` based on how long has he held the nft
@@ -184,7 +166,7 @@ contract RewardsDistributor {
 				revert OwnershipError(conf.nftContract, ids[i]);
 
 			amountToClaim += _calcNftHoldingRewards(conf, ids[i]);
-			conf.lastTimeClaimed[ids[i]] = SafeCastLib.toUint40(block.timestamp);
+			conf.lastTimeClaimed[ids[i]] = block.timestamp;
 		}
 	    
         _tryToReward(rewardToken, amountToClaim, msg.sender);
@@ -238,10 +220,8 @@ contract RewardsDistributor {
     function _calcNftHoldingRewards(
         RewardedNftHoldingConfig storage conf, uint40 id
     ) internal view returns (uint256) {
-        uint256 mintTime = conf.timeRewardsEnabled[id] > 0 ? 
-            conf.timeRewardsEnabled[id] : IMintTimeSaver(conf.nftContract).getMintTimeFor(id);
         uint256 lastClaim = max(conf.rewardsDistributionStarted, conf.lastTimeClaimed[id]);
-        return (block.timestamp - max(mintTime, lastClaim)) * conf.rewardsWeightPerDay / 1 days;
+        return (block.timestamp - lastClaim) * conf.rewardsWeightPerDay / 1 days;
     }
 
     function getRewardsDistributionStarted(
