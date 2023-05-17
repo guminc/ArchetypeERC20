@@ -4,6 +4,7 @@ import { expect } from 'chai';
 import {
     DEPLOYMENT_TIME,
     OptPartialApplierRes,
+    archetypeRewardingforHoldingNft,
     conditionalPartialApplier,
     getRandomFundedAccount,
     rewardingForHoldingFactory
@@ -14,7 +15,12 @@ import { snd } from 'fp-ts/lib/ReadonlyTuple';
 
 describe('RewardsDistributor', async () => {
 
-    let nftAndRewardTokenFactory: OptPartialApplierRes<typeof rewardingForHoldingFactory>
+    let nftAndRewardTokenFactory: OptPartialApplierRes<
+        typeof rewardingForHoldingFactory
+    >
+    let nftAndArchetypeTokenFactory: OptPartialApplierRes<
+        typeof archetypeRewardingforHoldingNft
+    >
     let REWARDS_DISTRIBUTOR: RewardsDistributor
 
     before(async () => {
@@ -28,16 +34,18 @@ describe('RewardsDistributor', async () => {
         nftAndRewardTokenFactory = conditionalPartialApplier(
             USE_SAME_REWARDS_DISTRIBUTOR_FOR_ALL_TESTS, rewardingForHoldingFactory
         )({ rewardsDistributor: REWARDS_DISTRIBUTOR })
+
+        nftAndArchetypeTokenFactory = conditionalPartialApplier(
+            USE_SAME_REWARDS_DISTRIBUTOR_FOR_ALL_TESTS, archetypeRewardingforHoldingNft
+        )({ rewardsDistributor: REWARDS_DISTRIBUTOR })
     })
 
     /**
      * @dev System case analyzed in this `describe` block:
      * - It's using an already existing erc20 token as rewards, that means that the
      *   erc20 owner has to fund the contract so the reward distributions work.
-     * - It's using an already existing erc721 token, that means that the NFT owners
-     *   have to call `enableNftRewardsFor` so they can use that token for rewards.
      */
-    describe('distributing rewards for holding already existing nfts', async () => {
+    describe('distributing rewards for holding nfts', async () => {
 
         describe('contract configuration', async () => {
             it('should have nft address right configured', async () => {
@@ -63,7 +71,6 @@ describe('RewardsDistributor', async () => {
                 const conf = await rewardsDistributor.nftHoldingRewardsConfigFor(erc20.address)
                 expect(expectedStart).to.equal(conf.rewardsDistributionStarted)
             })
-
         })
 
         it('shouldn\'t allow claiming rewards if contract is empty', async () => {
@@ -301,5 +308,96 @@ describe('RewardsDistributor', async () => {
             )
 
         })
+    })
+
+    /**
+     * @dev System case analyzed in this `describe` block:
+     * - It's using an archetype erc20 token as rewards, that means that
+     *   the token gets automatically minted when needed.
+     */
+    describe('distributing archetype rewards for holding nfts', async () => {
+
+        describe('contract configuration', async () => {
+            it('shouldn\'t allow minting rewards if reward token not configured', async () => {
+                const {rewardsDistributor, erc20, nft, owner} = await nftAndArchetypeTokenFactory({})
+
+                const hacker = await getRandomFundedAccount()
+                await nft.connect(owner).mint(hacker.address, 1)
+                
+                await sleep(1)
+
+                await rewardsDistributor.connect(hacker).claimRewardsForNftsHeld(
+                    erc20.address, [1]
+                )
+
+                expect(await erc20.balanceOf(hacker.address)).to.equal(0)
+            })
+            it('should allow reward token configuration', async () => {
+                const {rewardsDistributor, erc20, owner} = await nftAndArchetypeTokenFactory({
+                    rewardTokenSupply: 0, rewardTokenMaxSupply: 100
+                })
+
+                await erc20.connect(owner).addRewardsMinter(rewardsDistributor.address)
+
+                expect(await erc20.isRewardsMinter(rewardsDistributor.address)).to.true
+                expect(await erc20.supplyLeft()).to.equal(toWei(100))
+            })
+        })
+
+        it('should allow rewards mint', async () => {
+            const rewardsPerSecond = 1
+            const {
+                rewardsDistributor, erc20, owner, nft
+            } = await nftAndArchetypeTokenFactory({rewardsPerSecond})
+            const iniTime = await getLastTimestamp()
+
+            await erc20.connect(owner).addRewardsMinter(rewardsDistributor.address)
+
+            const rewardedUser = await getRandomFundedAccount()
+            await nft.connect(owner).mint(rewardedUser.address, 1)
+            
+            await rewardsDistributor.connect(rewardedUser).claimRewardsForNftsHeld(erc20.address, [1])
+            const expectedRewards = (await getLastTimestamp() - iniTime) * rewardsPerSecond
+
+            expect(await erc20.balanceOf(rewardedUser.address)).to.equal(toWei(expectedRewards))
+        })
+
+        it('shouldn\'t allow exceding max rewards supply', async () => {
+            const iniSupply = 10
+            const {rewardsDistributor, erc20, owner, nft} = await nftAndArchetypeTokenFactory({
+                rewardTokenSupply: iniSupply, rewardTokenMaxSupply: iniSupply
+            })
+            expect(await erc20.totalSupply()).to.equal(toWei(iniSupply))
+
+            await erc20.connect(owner).addRewardsMinter(rewardsDistributor.address)
+            const rewardedUser = await getRandomFundedAccount()
+            await nft.connect(owner).mint(rewardedUser.address, 1)
+
+            await rewardsDistributor.connect(rewardedUser).claimRewardsForNftsHeld(erc20.address, [1])
+            expect(await erc20.balanceOf(rewardedUser.address)).to.equal(0)
+            expect(await erc20.totalSupply()).to.equal(toWei(iniSupply))
+            expect(await erc20.supplyLeft()).to.equal(0)
+        })
+
+        it('should allow remaining rewards until max supply', async () => {
+            const iniSupply = 10
+            const supplyLeft = 0.5
+            const rewardsPerSecond = 1
+            const {rewardsDistributor, erc20, owner, nft} = await nftAndArchetypeTokenFactory({
+                rewardTokenSupply: iniSupply,
+                rewardTokenMaxSupply: iniSupply + supplyLeft,
+                rewardsPerSecond
+            })
+
+            await erc20.connect(owner).addRewardsMinter(rewardsDistributor.address)
+            const rewardedUser = await getRandomFundedAccount()
+            await nft.connect(owner).mint(rewardedUser.address, 1)
+
+            await rewardsDistributor.connect(rewardedUser).claimRewardsForNftsHeld(erc20.address, [1])
+            expect(await erc20.balanceOf(rewardedUser.address)).to.equal(toWei(supplyLeft))
+            expect(await erc20.totalSupply()).to.equal(toWei(iniSupply + supplyLeft))
+            expect(await erc20.supplyLeft()).to.equal(0)
+        })
+
     })
 })

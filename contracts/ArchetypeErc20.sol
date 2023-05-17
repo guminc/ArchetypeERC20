@@ -19,7 +19,6 @@ struct Config {
 	bool mintLocked;
 	bool ownerMintLocked;
 	uint256 maxSupply;
-    uint256 maxRewards;
 }
 
 contract ArchetypeERC20 is Ownable, ERC20, IRewardToken {
@@ -35,16 +34,8 @@ contract ArchetypeERC20 is Ownable, ERC20, IRewardToken {
 
 	function setMaxSupply(uint256 maxSupply) public onlyOwner {
         require(maxSupply >= totalSupply(), "Max supply can't be below current supply");
-        require(maxSupply >= config.maxRewards,
-            "Max supply can't be below the max amount of rewards to be distributed"
-        );
 		config.maxSupply = maxSupply;
 	}
-
-    function setMaxRewards(uint256 maxRewards) public onlyOwner {
-        require(config.maxSupply >= maxRewards, "Max rewards can't exced max supply"); 
-        config.maxRewards = maxRewards;
-    }
 	
 	/********************\
 	|* Minting  Methods *|
@@ -65,7 +56,7 @@ contract ArchetypeERC20 is Ownable, ERC20, IRewardToken {
 
     function mintRewards(address account, uint256 amount) external {
         if (!_isRewardsMinter[msg.sender]) revert NotAMinter(msg.sender);
-        if (amount > rewardsLeftToMint()) revert MaxRewardsExceded();
+        if (amount > supplyLeft()) revert MaxRewardsExceded();
         _mint(account, amount);
     }
 
@@ -77,9 +68,9 @@ contract ArchetypeERC20 is Ownable, ERC20, IRewardToken {
         _isRewardsMinter[minter] = true;
     }
 
-    function rewardsLeftToMint() public view returns (uint256) {
-        return totalSupply() > config.maxRewards ? 
-            0 : config.maxRewards - totalSupply();
+    function supplyLeft() public view returns (uint256) {
+        return totalSupply() > config.maxSupply ?
+            0 : config.maxSupply - totalSupply();  
     }
 
 }

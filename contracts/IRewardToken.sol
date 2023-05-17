@@ -27,5 +27,5 @@ interface IRewardToken is IERC20 {
      * @dev View function so `minter` doesn't exced 
      * the allowed amount to mint.
      */
-    function rewardsLeftToMint() external view returns (uint256);
+    function supplyLeft() external view returns (uint256);
 }

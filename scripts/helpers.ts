@@ -7,6 +7,7 @@ import { RewardsDistributor } from '../typechain-types';
 import { zip } from 'fp-ts/lib/ReadonlyNonEmptyArray';
 import { ReadonlyNonEmptyArray } from 'fp-ts/lib/ReadonlyNonEmptyArray';
 import { RewardsDistributor__factory } from '../typechain-types';
+import { number } from 'fp-ts';
 
 
 // -------- Random pure utilities --------
@@ -56,10 +57,14 @@ export const conditionalPartialApplier = <T, U>(
  * @dev It deploys an non Archetype ERC20, an non Archetype ERC721 to reward for holding 
  * and an RewardsDistributor.
  */
-export const rewardingForHoldingFactory = async <T>({
-    rewardTokenSupply = 1000, rewardsPerSecond = 1, rewardsDistributor = undefined
+export const rewardingForHoldingFactory = async ({
+    rewardTokenSupply = 1000,
+    rewardsPerSecond = 1,
+    rewardsDistributor = undefined,
 }:{
-    rewardTokenSupply?: number, rewardsPerSecond? : number, rewardsDistributor?: RewardsDistributor
+    rewardTokenSupply?: number,
+    rewardsPerSecond? : number,
+    rewardsDistributor?: RewardsDistributor,
 }) => {
     const TokenFactory = await ethers.getContractFactory('MinimalErc20')
     const NftFactory = await ethers.getContractFactory('MinimalErc721')
@@ -83,3 +88,38 @@ export const rewardingForHoldingFactory = async <T>({
     }
 }
 
+export const archetypeRewardingforHoldingNft = async ({
+    rewardTokenSupply = 100,
+    rewardTokenMaxSupply = 200,
+    rewardsPerSecond = 1,
+    rewardsDistributor = undefined,
+}:{
+    rewardTokenSupply?: number,
+    rewardTokenMaxSupply?: number,
+    rewardsPerSecond? : number,
+    rewardsDistributor?: RewardsDistributor,
+}) => {
+    const TokenFactory = await ethers.getContractFactory('ArchetypeERC20')
+    const NftFactory = await ethers.getContractFactory('MinimalErc721')
+    const RewardsDistributorFactory = await ethers.getContractFactory('RewardsDistributor')
+    
+    const deployer = await getRandomFundedAccount()
+    const owner = await getRandomFundedAccount()
+
+    const erc20 = await TokenFactory.connect(owner).deploy("TestToken", "TEST")
+    await erc20.connect(owner).setMaxSupply(toWei(rewardTokenMaxSupply))
+    await erc20.connect(owner).ownerMint(owner.address, toWei(rewardTokenSupply))
+
+    const nft = await NftFactory.connect(owner).deploy();
+    
+    if (!rewardsDistributor) 
+        rewardsDistributor = await RewardsDistributorFactory.connect(deployer).deploy();
+
+    await rewardsDistributor.connect(owner).configRewardsForHoldingNft(
+        erc20.address, nft.address, toWei(rewardsPerSecond * 60 * 60 * 24)
+    )
+
+    return {
+        deployer, owner, erc20, nft, rewardsDistributor
+    }
+}

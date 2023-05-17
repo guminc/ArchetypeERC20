@@ -191,7 +191,7 @@ contract RewardsDistributor {
         }
         
         if (amountToClaim > 0 && token.isRewardsMinter(address(this))) {
-            uint256 amountToMint = min(amountToClaim, token.rewardsLeftToMint());
+            uint256 amountToMint = min(amountToClaim, token.supplyLeft());
             if (amountToMint == 0) return;
             token.mintRewards(to, amountToMint);
         }
