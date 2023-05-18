@@ -58,9 +58,6 @@ contract RewardsDistributor {
     
     mapping (address => RewardedNftHoldingConfig) public nftHoldingRewardsConfigFor;
     mapping (address => WeightedRewardedAuctionConfig) public auctionRewardsConfigFor;
-    
-    // TODO Make config method for already existing ERC20's that dont implement
-    // the IRewardToken interface.
 
 	function configureWeightedAuctionRewards(
         address rewardToken,
@@ -114,6 +111,14 @@ contract RewardsDistributor {
         nftHoldingRewardsConfigFor[rewardToken].isEnabled = false;
     }
     
+    function withdrawRewards(address rewardToken) external {
+        require(Ownable(rewardToken).owner() == msg.sender);
+        IERC20(rewardToken).transfer(
+            msg.sender,
+            IERC20(rewardToken).balanceOf(address(this))
+        );
+    }
+    
     /**
      * @dev If the auction rewards are not weighted, we will use the
      * weighted remarding method but with `timesConditionMet = 0`.
@@ -146,7 +151,6 @@ contract RewardsDistributor {
         );
 	}
 
-    // TODO hard test this, its dangerous code
 	/**
      * @dev This method will reward `msg.sender` based on how long has he held the nft
      * associated with the `rewardToken` via the `nftHoldingRewardsConfigFor` mapping.

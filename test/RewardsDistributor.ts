@@ -308,6 +308,19 @@ describe('RewardsDistributor', async () => {
             )
 
         })
+
+        it('should allow withdraw non distributed rewards', async () => {
+            const {rewardsDistributor, erc20, owner} = await nftAndRewardTokenFactory({})
+        
+            const hacker = await getRandomFundedAccount()
+
+            await erc20.connect(owner).transfer(rewardsDistributor.address, toWei(30))
+            const iniBal = await erc20.balanceOf(owner.address)
+
+            expect(rewardsDistributor.connect(hacker).withdrawRewards(erc20.address)).to.reverted
+            await rewardsDistributor.connect(owner).withdrawRewards(erc20.address)
+            expect(await erc20.balanceOf(owner.address)).to.equal(iniBal.add(toWei(30)))
+        })
     })
 
     /**
