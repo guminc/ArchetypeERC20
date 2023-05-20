@@ -16,7 +16,6 @@ contract MinimalSharesHolder is ISharesHolder, Ownable {
 
 	function getAndClearSharesFor(address user) 
         external 
-        onlyOwner 
         returns (uint256 shares) 
     {
         require(_isSharesUpdater[msg.sender]);

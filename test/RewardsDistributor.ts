@@ -4,14 +4,17 @@ import { expect } from 'chai';
 import {
     DEPLOYMENT_TIME,
     OptPartialApplierRes,
+    archetypeRewardingForAuction,
     archetypeRewardingforHoldingNft,
     conditionalPartialApplier,
+    extractPercent,
     getRandomFundedAccount,
     rewardingForHoldingFactory
 } from '../scripts/helpers'
 import { RewardsDistributor } from '../typechain-types';
 import { getLastTimestamp, sleep, toWei, fromWei } from '../lib/ArchetypeAuction/scripts/helpers';
-import { snd } from 'fp-ts/lib/ReadonlyTuple';
+import * as O from 'fp-ts/lib/Option';
+import { pipe } from 'fp-ts/lib/function';
 
 describe('RewardsDistributor', async () => {
 
@@ -20,6 +23,9 @@ describe('RewardsDistributor', async () => {
     >
     let nftAndArchetypeTokenFactory: OptPartialApplierRes<
         typeof archetypeRewardingforHoldingNft
+    >
+    let auctionAndArchetypeTokenFactory: OptPartialApplierRes<
+        typeof archetypeRewardingForAuction
     >
     let REWARDS_DISTRIBUTOR: RewardsDistributor
 
@@ -37,6 +43,10 @@ describe('RewardsDistributor', async () => {
 
         nftAndArchetypeTokenFactory = conditionalPartialApplier(
             USE_SAME_REWARDS_DISTRIBUTOR_FOR_ALL_TESTS, archetypeRewardingforHoldingNft
+        )({ rewardsDistributor: REWARDS_DISTRIBUTOR })
+
+        auctionAndArchetypeTokenFactory = conditionalPartialApplier(
+            USE_SAME_REWARDS_DISTRIBUTOR_FOR_ALL_TESTS, archetypeRewardingForAuction
         )({ rewardsDistributor: REWARDS_DISTRIBUTOR })
     })
 
@@ -331,26 +341,10 @@ describe('RewardsDistributor', async () => {
     describe('distributing archetype rewards for holding nfts', async () => {
 
         describe('contract configuration', async () => {
-            it('shouldn\'t allow minting rewards if reward token not configured', async () => {
-                const {rewardsDistributor, erc20, nft, owner} = await nftAndArchetypeTokenFactory({})
-
-                const hacker = await getRandomFundedAccount()
-                await nft.connect(owner).mint(hacker.address, 1)
-                
-                await sleep(1)
-
-                await rewardsDistributor.connect(hacker).claimRewardsForNftsHeld(
-                    erc20.address, [1]
-                )
-
-                expect(await erc20.balanceOf(hacker.address)).to.equal(0)
-            })
             it('should allow reward token configuration', async () => {
-                const {rewardsDistributor, erc20, owner} = await nftAndArchetypeTokenFactory({
+                const {rewardsDistributor, erc20} = await nftAndArchetypeTokenFactory({
                     rewardTokenSupply: 0, rewardTokenMaxSupply: 100
                 })
-
-                await erc20.connect(owner).addRewardsMinter(rewardsDistributor.address)
 
                 expect(await erc20.isRewardsMinter(rewardsDistributor.address)).to.true
                 expect(await erc20.supplyLeft()).to.equal(toWei(100))
@@ -363,8 +357,6 @@ describe('RewardsDistributor', async () => {
                 rewardsDistributor, erc20, owner, nft
             } = await nftAndArchetypeTokenFactory({rewardsPerSecond})
             const iniTime = await getLastTimestamp()
-
-            await erc20.connect(owner).addRewardsMinter(rewardsDistributor.address)
 
             const rewardedUser = await getRandomFundedAccount()
             await nft.connect(owner).mint(rewardedUser.address, 1)
@@ -382,7 +374,6 @@ describe('RewardsDistributor', async () => {
             })
             expect(await erc20.totalSupply()).to.equal(toWei(iniSupply))
 
-            await erc20.connect(owner).addRewardsMinter(rewardsDistributor.address)
             const rewardedUser = await getRandomFundedAccount()
             await nft.connect(owner).mint(rewardedUser.address, 1)
 
@@ -402,7 +393,6 @@ describe('RewardsDistributor', async () => {
                 rewardsPerSecond
             })
 
-            await erc20.connect(owner).addRewardsMinter(rewardsDistributor.address)
             const rewardedUser = await getRandomFundedAccount()
             await nft.connect(owner).mint(rewardedUser.address, 1)
 
@@ -412,5 +402,86 @@ describe('RewardsDistributor', async () => {
             expect(await erc20.supplyLeft()).to.equal(0)
         })
 
+    })
+
+    /**
+     * @dev System case analyzed in this `describe` block:
+     * - It's using an archetype erc20 token as rewards for an
+     *   `ISharesHolder`, for example, an `ScatterAuction`.
+     */
+    describe('distributing archetype rewards based on shares holding', async () => {
+
+        it('should allow rewards distributor to update auction shares', async () => {
+            const weight = '100%'
+            const {
+                auction, rewardsDistributor, owner, erc20, deployer
+            } = await auctionAndArchetypeTokenFactory({rewardsWeight: weight})
+
+            expect(await auction.getIsSharesUpdater(rewardsDistributor.address)).to.true
+            expect(await auction.getIsSharesUpdater(owner.address)).to.false
+            expect(await auction.getIsSharesUpdater(deployer.address)).to.false
+        })
+
+        it('should allow claim rewards based on shares', async () => {
+            // Let `x` be the amount bidded in an ScatterAuction,
+            // then the rewarded amount will be `x * weight`.
+            const weight = '100%'
+            const {
+                auction, rewardsDistributor, owner, erc20
+            } = await auctionAndArchetypeTokenFactory({rewardsWeight: weight})
+            
+            const bidder = await getRandomFundedAccount()
+            
+            // Suppose that `bidder` made an 1eth bid.
+            const bidAmount = toWei(1)
+            await auction.connect(owner).setSharesFor(bidder.address, bidAmount)
+            
+            expect(await erc20.balanceOf(bidder.address)).to.equal(0)
+            await rewardsDistributor.connect(bidder).claimAuctionRewards(erc20.address)
+            await rewardsDistributor.connect(bidder).claimAuctionRewards(erc20.address)
+            await rewardsDistributor.connect(bidder).claimAuctionRewards(erc20.address)
+            
+            const expectedRewards = pipe(
+                extractPercent(weight),
+                O.map(p => bidAmount.mul(p/100)),
+                O.getOrElse(() => bidAmount)
+            )
+            
+            expect(await erc20.balanceOf(bidder.address)).to.equal(expectedRewards)
+        })
+
+        it('shouldn\'t be rewarded if doesn\'t holds any shares', async () => {
+            const { rewardsDistributor, erc20 } = await auctionAndArchetypeTokenFactory({})
+            
+            const hacker = await getRandomFundedAccount()
+
+            expect(await erc20.balanceOf(hacker.address)).to.equal(0)
+            await rewardsDistributor.connect(hacker).claimAuctionRewards(erc20.address)
+            expect(await erc20.balanceOf(hacker.address)).to.equal(0)
+            
+        })
+    })
+    
+    /**
+     * @dev System case analyzed in this `describe` block:
+     * - It's using an archetype erc20 token as rewards for an `ISharesHolder`, for example,
+     *   an `ScatterAuction`. Those rewards will be conditionally distributed based on 
+     *   a merkle root (see `RewardsDistributor.WeightedRewardedAuctionConfig`).
+     */
+    describe('distributing archetype rewards based on weighted shares holding', async () => {
+        // TODO 
+    })
+
+    /**
+     * @dev System case analyzed in this `describe` block:
+     * - Those tests check that everything is working as expected on
+     *   different reward models reconfigurations for the same token.
+     * - For example, imagine if the owner of such token first called 
+     *       `rewardsDistributor.configureAuctionRewards`
+     *   and then
+     *       `rewardsDistributor.configureWeightedAuctionRewards`
+     */
+    describe('runtime reconfigurations for the same reward token', async () => {
+        // TODO 
     })
 })

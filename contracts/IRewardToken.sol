@@ -7,9 +7,9 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 interface IRewardToken is IERC20 {
     /**
      * @dev External function so `msg.sender` can mint 
-     * the token iff `isMinter(msg.sender)`.
+     * the token iff `isRewardsMinter(msg.sender)`.
      */
-    function mintRewards(address acount, uint256 amount) external;
+    function mintRewards(address account, uint256 amount) external;
     
     /**
      * @param minter Will be able to mint the token 

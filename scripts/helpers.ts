@@ -7,7 +7,10 @@ import { RewardsDistributor } from '../typechain-types';
 import { zip } from 'fp-ts/lib/ReadonlyNonEmptyArray';
 import { ReadonlyNonEmptyArray } from 'fp-ts/lib/ReadonlyNonEmptyArray';
 import { RewardsDistributor__factory } from '../typechain-types';
-import { number } from 'fp-ts';
+import { number, option } from 'fp-ts';
+import { union } from 'fp-ts/lib/Array';
+import * as O from 'fp-ts/lib/Option';
+import { pipe } from 'fp-ts/lib/function';
 
 
 // -------- Random pure utilities --------
@@ -50,6 +53,12 @@ export const conditionalPartialApplier = <T, U>(
 ): (v: Pick<T, keyof T>) => OptPartialApplierRes<typeof f> =>
     c ? v => partialApplier(f, v) : _ => f
 
+export const extractPercent = (percent: string): O.Option<number> => {
+    if (!percent.endsWith('%')) return O.none;
+    const value = parseFloat(percent.slice(0, -1))
+    return isNaN(value) ? O.none : O.some(value)
+};
+
 
 // -------- System utilities -------- 
 
@@ -61,7 +70,7 @@ export const rewardingForHoldingFactory = async ({
     rewardTokenSupply = 1000,
     rewardsPerSecond = 1,
     rewardsDistributor = undefined,
-}:{
+}: {
     rewardTokenSupply?: number,
     rewardsPerSecond? : number,
     rewardsDistributor?: RewardsDistributor,
@@ -93,7 +102,7 @@ export const archetypeRewardingforHoldingNft = async ({
     rewardTokenMaxSupply = 200,
     rewardsPerSecond = 1,
     rewardsDistributor = undefined,
-}:{
+}: {
     rewardTokenSupply?: number,
     rewardTokenMaxSupply?: number,
     rewardsPerSecond? : number,
@@ -115,6 +124,8 @@ export const archetypeRewardingforHoldingNft = async ({
     if (!rewardsDistributor) 
         rewardsDistributor = await RewardsDistributorFactory.connect(deployer).deploy();
 
+    await erc20.connect(owner).addRewardsMinter(rewardsDistributor.address)
+
     await rewardsDistributor.connect(owner).configRewardsForHoldingNft(
         erc20.address, nft.address, toWei(rewardsPerSecond * 60 * 60 * 24)
     )
@@ -122,4 +133,51 @@ export const archetypeRewardingforHoldingNft = async ({
     return {
         deployer, owner, erc20, nft, rewardsDistributor
     }
+}
+
+export const archetypeRewardingForAuction = async ({
+    rewardTokenSupply = 100,
+    rewardTokenMaxSupply = 200,
+    rewardsWeight = '100%', // 100%, ie, for every share get 1 token.
+    rewardsDistributor = undefined,
+}: {
+    rewardTokenSupply?: number,
+    rewardTokenMaxSupply?: number,
+    rewardsWeight? : string, //
+    rewardsDistributor?: RewardsDistributor,
+}) => {
+    const TokenFactory = await ethers.getContractFactory('ArchetypeERC20')
+    const RewardsDistributorFactory = await ethers.getContractFactory('RewardsDistributor')
+    const SharesHolderFactory = await ethers.getContractFactory('MinimalSharesHolder')
+    
+    const deployer = await getRandomFundedAccount()
+    const owner = await getRandomFundedAccount()
+
+    const erc20 = await TokenFactory.connect(owner).deploy("TestToken", "TEST")
+    await erc20.connect(owner).setMaxSupply(toWei(rewardTokenMaxSupply))
+    await erc20.connect(owner).ownerMint(owner.address, toWei(rewardTokenSupply))
+
+
+    if (!rewardsDistributor) 
+        rewardsDistributor = await RewardsDistributorFactory.connect(deployer).deploy();
+
+    const auction = await SharesHolderFactory.connect(owner).deploy()
+    auction.connect(owner).addSharesUpdater(rewardsDistributor.address)
+
+    await erc20.connect(owner).addRewardsMinter(rewardsDistributor.address)
+    
+    const bpsPercent = pipe(
+        extractPercent(rewardsWeight),
+        O.map(n => n * 100),
+        O.getOrElse(() => 10000)
+    )
+    
+    await rewardsDistributor.connect(owner).configureAuctionRewards(
+        erc20.address, bpsPercent, auction.address
+    )
+
+    return {
+        deployer, owner, erc20, rewardsDistributor, auction
+    }
+
 }
