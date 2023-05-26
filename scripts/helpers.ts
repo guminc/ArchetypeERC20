@@ -1,14 +1,10 @@
 import { ethers } from 'hardhat';
-import { ArchetypeERC20 } from '../typechain-types';
 import { 
     toWei 
 } from '../lib/ArchetypeAuction/scripts/helpers'
 import { RewardsDistributor } from '../typechain-types';
 import { zip } from 'fp-ts/lib/ReadonlyNonEmptyArray';
 import { ReadonlyNonEmptyArray } from 'fp-ts/lib/ReadonlyNonEmptyArray';
-import { RewardsDistributor__factory } from '../typechain-types';
-import { number, option } from 'fp-ts';
-import { union } from 'fp-ts/lib/Array';
 import * as O from 'fp-ts/lib/Option';
 import { pipe } from 'fp-ts/lib/function';
 

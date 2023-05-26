@@ -2,7 +2,6 @@ import { ethers } from 'hardhat';
 import { expect } from 'chai';
 
 import {
-    DEPLOYMENT_TIME,
     OptPartialApplierRes,
     archetypeRewardingForAuction,
     archetypeRewardingforHoldingNft,
@@ -18,15 +17,9 @@ import { pipe } from 'fp-ts/lib/function';
 
 describe('RewardsDistributor', async () => {
 
-    let nftAndRewardTokenFactory: OptPartialApplierRes<
-        typeof rewardingForHoldingFactory
-    >
-    let nftAndArchetypeTokenFactory: OptPartialApplierRes<
-        typeof archetypeRewardingforHoldingNft
-    >
-    let auctionAndArchetypeTokenFactory: OptPartialApplierRes<
-        typeof archetypeRewardingForAuction
-    >
+    let nftAndRewardTokenFactory: OptPartialApplierRes<typeof rewardingForHoldingFactory>
+    let nftAndArchetypeTokenFactory: OptPartialApplierRes<typeof archetypeRewardingforHoldingNft>
+    let auctionAndArchetypeTokenFactory: OptPartialApplierRes<typeof archetypeRewardingForAuction>
     let REWARDS_DISTRIBUTOR: RewardsDistributor
 
     before(async () => {

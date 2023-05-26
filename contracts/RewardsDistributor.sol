@@ -96,14 +96,16 @@ contract RewardsDistributor {
     function configRewardsForHoldingNft(
         address rewardToken,
         address nftToHold,
-        uint256 rewardsWeightPerDay
+        uint256 rewardsWeightPerDay,
+        uint40 rewardsDistributionStartTime
     ) public {
         require(Ownable(rewardToken).owner() == msg.sender);
+        require(block.timestamp >= rewardsDistributionStartTime);
         RewardedNftHoldingConfig storage conf = nftHoldingRewardsConfigFor[rewardToken];
         conf.isEnabled = true;
         conf.nftContract = nftToHold;
         conf.rewardsWeightPerDay = rewardsWeightPerDay;
-        conf.rewardsDistributionStarted = block.timestamp;
+        conf.rewardsDistributionStarted = rewardsDistributionStartTime;
     }
 
     function disableRewardsForHoldingNft(address rewardToken) external {
