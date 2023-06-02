@@ -24,22 +24,20 @@ error AuctionContractNotConfigured();
  */
 struct RewardedNftHoldingConfig {
 	bool isEnabled;
+    address rewardsToken;
 	address nftContract;
     // Wont overflow: 1 MPARTY for 1000 years is (10**18)*(365*1000) <<< 2**96-1.
 	uint96 rewardsPerDay; // In Wei
-    // Wont overflow: timestamp <<< 2**32-1 for any realistic unix timestamp.
-	uint32 rewardsDistributionStarted;
-    // Wont overflow: maxSupply(nftContract) <<< 2**16 - 1.
-	mapping (uint16 => uint32) lastTimeClaimed; 
+	uint256 rewardsDistributionStarted;
+	mapping (uint256 => uint256) lastTimeClaimed; 
 }
 
 contract MPartyRewardsDistributor {
     
     RewardedNftHoldingConfig public config;
-    
 
     /**
-     * @param rewardToken Is the `IRewardToken` such that 
+     * @param rewardsToken Is the `IRewardToken` such that 
      * `IRewardToken(rewardToken).isRewardsMinter(address(this))`.
      * @param nftToHold Is the NFT address to hold to get rewarded.
      * @param rewardsPerDay Is the amount of reward tokens that will 
@@ -51,14 +49,15 @@ contract MPartyRewardsDistributor {
      * `block.timestamp`.
      */
     function configRewardsForHoldingNft(
-        address rewardToken,
+        address rewardsToken,
         address nftToHold,
         uint96 rewardsPerDay,
-        uint32 rewardsDistributionStartTime
+        uint256 rewardsDistributionStartTime
     ) public {
-        require(Ownable(rewardToken).owner() == msg.sender);
+        require(Ownable(rewardsToken).owner() == msg.sender);
         require(block.timestamp >= rewardsDistributionStartTime);
         config.isEnabled = true;
+        config.rewardsToken = rewardsToken;
         config.nftContract = nftToHold;
         config.rewardsPerDay = rewardsPerDay;
         config.rewardsDistributionStarted = rewardsDistributionStartTime;
@@ -69,32 +68,29 @@ contract MPartyRewardsDistributor {
         config.isEnabled = false;
     }
 
-    // TODO Test reentrancy.
 	/**
      * @dev This method will reward `msg.sender` based on how long has he held the nft
      * associated with the `rewardToken` via the `nftHoldingRewardsConfigFor` mapping.
 	 * @param ids Array with all the nft ids to claim the rewards for.
 	 */
-	function claimRewardsForNftsHeld(uint16[] calldata ids) public {
+	function claimRewardsForNftsHeld(uint256[] calldata ids) public {
 		if (!config.isEnabled) revert RewardModelDisabled();
         
         // Rewards calculation.
-		uint96 amountToClaim;
+		uint256 amountToClaim;
 
-		for (uint16 i; i < ids.length; i++) {
+		for (uint256 i; i < ids.length; i++) {
 			if (IERC721(config.nftContract).ownerOf(ids[i]) != msg.sender)
 				revert OwnershipError(config.nftContract, ids[i]);
 
 			amountToClaim += _calcNftHoldingRewards(ids[i]);
-			config.lastTimeClaimed[ids[i]] = uint32(block.timestamp);
+			config.lastTimeClaimed[ids[i]] = block.timestamp;
 		}
 	    
         // Rewards distribution.
-        IRewardToken token = IRewardToken(config.nftContract);
+        IRewardToken token = IRewardToken(config.rewardsToken);
         
-        uint96 amountToMint = uint96(
-            amountToClaim >= token.supplyLeft() ? token.supplyLeft() : amountToClaim
-        );
+        uint256 amountToMint = amountToClaim >= token.supplyLeft() ? token.supplyLeft() : amountToClaim;
 
         token.mintRewards(msg.sender, amountToMint);
 	}
@@ -102,24 +98,24 @@ contract MPartyRewardsDistributor {
     /********************\
 	|* Helper Functions *|
 	\********************/
-    function lastTimeClaimed(uint16 id) public view returns (uint256) {
+    function lastTimeClaimed(uint256 id) public view returns (uint256) {
         return config.lastTimeClaimed[id];
     }
 
     function calcNftHoldingRewards(
-        uint16[] calldata ids
-    ) public view returns (uint96 rewards) {
-		for (uint16 i; i < ids.length; i++)
+        uint256[] calldata ids
+    ) public view returns (uint256 rewards) {
+		for (uint256 i; i < ids.length; i++)
             rewards += _calcNftHoldingRewards(ids[i]);
     }
     
     /*
      * @dev Computes the rewards for a single `config.nftContract` with token id `id`.
      */
-    function _calcNftHoldingRewards(uint16 id) private view returns (uint96) {
-        uint96 lastClaim = config.rewardsDistributionStarted > config.lastTimeClaimed[id] ?
+    function _calcNftHoldingRewards(uint256 id) private view returns (uint256) {
+        uint256 lastClaim = config.rewardsDistributionStarted > config.lastTimeClaimed[id] ?
             config.rewardsDistributionStarted : config.lastTimeClaimed[id];
-        return uint96((block.timestamp - lastClaim) * config.rewardsPerDay / 1 days);
+        return (block.timestamp - lastClaim) * config.rewardsPerDay / 1 days;
     }
 
 }

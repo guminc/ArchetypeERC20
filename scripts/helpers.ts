@@ -2,14 +2,16 @@ import { ethers } from 'hardhat';
 import { 
     toWei 
 } from '../lib/ArchetypeAuction/scripts/helpers'
-import { RewardsDistributor } from '../typechain-types';
 import { zip } from 'fp-ts/lib/ReadonlyNonEmptyArray';
 import { ReadonlyNonEmptyArray } from 'fp-ts/lib/ReadonlyNonEmptyArray';
 import * as O from 'fp-ts/lib/Option';
-import { pipe } from 'fp-ts/lib/function';
+import { MPartyRewardsDistributor } from '../typechain-types';
 
 
 // -------- Random pure utilities --------
+
+export const getLastTimestamp = async () =>
+    (await ethers.provider.getBlock('latest')).timestamp
 
 export const randomAddress = () => `0x${[...Array(40)]
     .map(() => Math.floor(Math.random() * 16).toString(16))
@@ -58,41 +60,6 @@ export const extractPercent = (percent: string): O.Option<number> => {
 
 // -------- System utilities -------- 
 
-/**
- * @dev It deploys an non Archetype ERC20, an non Archetype ERC721 to reward for holding 
- * and an RewardsDistributor.
- */
-export const rewardingForHoldingFactory = async ({
-    rewardTokenSupply = 1000,
-    rewardsPerSecond = 1,
-    rewardsDistributor = undefined,
-}: {
-    rewardTokenSupply?: number,
-    rewardsPerSecond? : number,
-    rewardsDistributor?: RewardsDistributor,
-}) => {
-    const TokenFactory = await ethers.getContractFactory('MinimalErc20')
-    const NftFactory = await ethers.getContractFactory('MinimalErc721')
-    const RewardsDistributorFactory = await ethers.getContractFactory('RewardsDistributor')
-    
-    const deployer = await getRandomFundedAccount()
-    const owner = await getRandomFundedAccount()
-
-    const erc20 = await TokenFactory.connect(owner).deploy(toWei(rewardTokenSupply));
-    const nft = await NftFactory.connect(owner).deploy();
-    
-    if (!rewardsDistributor) 
-        rewardsDistributor = await RewardsDistributorFactory.connect(deployer).deploy();
-
-    await rewardsDistributor.connect(owner).configRewardsForHoldingNft(
-        erc20.address, nft.address, toWei(rewardsPerSecond * 60 * 60 * 24)
-    )
-
-    return {
-        deployer, owner, erc20, nft, rewardsDistributor
-    }
-}
-
 export const archetypeRewardingforHoldingNft = async ({
     rewardTokenSupply = 100,
     rewardTokenMaxSupply = 200,
@@ -102,16 +69,16 @@ export const archetypeRewardingforHoldingNft = async ({
     rewardTokenSupply?: number,
     rewardTokenMaxSupply?: number,
     rewardsPerSecond? : number,
-    rewardsDistributor?: RewardsDistributor,
+    rewardsDistributor?: MPartyRewardsDistributor,
 }) => {
-    const TokenFactory = await ethers.getContractFactory('ArchetypeERC20')
+    const TokenFactory = await ethers.getContractFactory('MPARTY')
     const NftFactory = await ethers.getContractFactory('MinimalErc721')
-    const RewardsDistributorFactory = await ethers.getContractFactory('RewardsDistributor')
+    const RewardsDistributorFactory = await ethers.getContractFactory('MPartyRewardsDistributor')
     
     const deployer = await getRandomFundedAccount()
     const owner = await getRandomFundedAccount()
 
-    const erc20 = await TokenFactory.connect(owner).deploy("TestToken", "TEST")
+    const erc20 = await TokenFactory.connect(owner).deploy()
     await erc20.connect(owner).setMaxSupply(toWei(rewardTokenMaxSupply))
     await erc20.connect(owner).ownerMint(owner.address, toWei(rewardTokenSupply))
 
@@ -122,58 +89,17 @@ export const archetypeRewardingforHoldingNft = async ({
 
     await erc20.connect(owner).addRewardsMinter(rewardsDistributor.address)
 
+    const rewardsStart = await getLastTimestamp()
+
     await rewardsDistributor.connect(owner).configRewardsForHoldingNft(
-        erc20.address, nft.address, toWei(rewardsPerSecond * 60 * 60 * 24)
+        erc20.address,
+        nft.address,
+        toWei(rewardsPerSecond * 60 * 60 * 24),
+        rewardsStart 
     )
 
     return {
-        deployer, owner, erc20, nft, rewardsDistributor
+        deployer, owner, erc20, nft, rewardsDistributor, rewardsStart
     }
 }
 
-export const archetypeRewardingForAuction = async ({
-    rewardTokenSupply = 100,
-    rewardTokenMaxSupply = 200,
-    rewardsWeight = '100%', // 100%, ie, for every share get 1 token.
-    rewardsDistributor = undefined,
-}: {
-    rewardTokenSupply?: number,
-    rewardTokenMaxSupply?: number,
-    rewardsWeight? : string, //
-    rewardsDistributor?: RewardsDistributor,
-}) => {
-    const TokenFactory = await ethers.getContractFactory('ArchetypeERC20')
-    const RewardsDistributorFactory = await ethers.getContractFactory('RewardsDistributor')
-    const SharesHolderFactory = await ethers.getContractFactory('MinimalSharesHolder')
-    
-    const deployer = await getRandomFundedAccount()
-    const owner = await getRandomFundedAccount()
-
-    const erc20 = await TokenFactory.connect(owner).deploy("TestToken", "TEST")
-    await erc20.connect(owner).setMaxSupply(toWei(rewardTokenMaxSupply))
-    await erc20.connect(owner).ownerMint(owner.address, toWei(rewardTokenSupply))
-
-
-    if (!rewardsDistributor) 
-        rewardsDistributor = await RewardsDistributorFactory.connect(deployer).deploy();
-
-    const auction = await SharesHolderFactory.connect(owner).deploy()
-    auction.connect(owner).addSharesUpdater(rewardsDistributor.address)
-
-    await erc20.connect(owner).addRewardsMinter(rewardsDistributor.address)
-    
-    const bpsPercent = pipe(
-        extractPercent(rewardsWeight),
-        O.map(n => n * 100),
-        O.getOrElse(() => 10000)
-    )
-    
-    await rewardsDistributor.connect(owner).configureAuctionRewards(
-        erc20.address, bpsPercent, auction.address
-    )
-
-    return {
-        deployer, owner, erc20, rewardsDistributor, auction
-    }
-
-}

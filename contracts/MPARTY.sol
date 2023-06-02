@@ -27,7 +27,7 @@ contract MPARTY is Ownable, ERC20, IRewardToken {
 	/*****************************************************\
 	|* Contract Initialization And Configuration Methods *|
 	\*****************************************************/
-	constructor() ERC20("Milady Maker Party Token", "MPARTY") {}
+	constructor() ERC20("MiladyMakerParty", "MPARTY") {}
 
 	function setMaxSupply(uint96 maxSupply) public onlyOwner {
         require(maxSupply >= totalSupply(), "Max supply can't be below current supply");
