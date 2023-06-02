@@ -15,10 +15,11 @@ error MaxRewardsExceded();
 struct Config {
 	bool mintLocked;
 	bool ownerMintLocked;
-	uint256 maxSupply;
+    // Wont overflow as long as its below `(2**96)/(10**18)`.
+	uint96 maxSupply;
 }
 
-contract ArchetypeERC20 is Ownable, ERC20, IRewardToken {
+contract MPARTY is Ownable, ERC20, IRewardToken {
     
     Config config;
     mapping (address => bool) private _isRewardsMinter;
@@ -26,9 +27,9 @@ contract ArchetypeERC20 is Ownable, ERC20, IRewardToken {
 	/*****************************************************\
 	|* Contract Initialization And Configuration Methods *|
 	\*****************************************************/
-	constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
+	constructor() ERC20("Milady Maker Party Token", "MPARTY") {}
 
-	function setMaxSupply(uint256 maxSupply) public onlyOwner {
+	function setMaxSupply(uint96 maxSupply) public onlyOwner {
         require(maxSupply >= totalSupply(), "Max supply can't be below current supply");
 		config.maxSupply = maxSupply;
 	}
@@ -41,7 +42,7 @@ contract ArchetypeERC20 is Ownable, ERC20, IRewardToken {
 		super._mint(account, amount);
 	}
 
-	function ownerMint(address account, uint256 amount) public onlyOwner() {
+	function ownerMint(address account, uint256 amount) public onlyOwner {
 		if (config.ownerMintLocked) revert OwnerMintLocked();
         _mint(account, amount);
 	}
