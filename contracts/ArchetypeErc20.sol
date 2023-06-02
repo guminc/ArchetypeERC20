@@ -3,10 +3,7 @@
 pragma solidity ^0.8.11;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "../lib/ArchetypeAuction/contracts/ISharesHolder.sol";
-import "solady/src/utils/MerkleProofLib.sol";
 import "./IRewardToken.sol";
 
 
@@ -26,7 +23,6 @@ contract ArchetypeERC20 is Ownable, ERC20, IRewardToken {
     Config config;
     mapping (address => bool) private _isRewardsMinter;
 
-	// TODO add cute UTFs and asciis to the code and test them on etherscan (Critical).
 	/*****************************************************\
 	|* Contract Initialization And Configuration Methods *|
 	\*****************************************************/
@@ -53,7 +49,6 @@ contract ArchetypeERC20 is Ownable, ERC20, IRewardToken {
 	/*******************************\
 	|* IRewardToken implementation *|
 	\*******************************/
-
     function mintRewards(address account, uint256 amount) external {
         if (!_isRewardsMinter[msg.sender]) revert NotAMinter(msg.sender);
         if (amount > supplyLeft()) revert MaxRewardsExceded();
@@ -68,9 +63,24 @@ contract ArchetypeERC20 is Ownable, ERC20, IRewardToken {
         _isRewardsMinter[minter] = true;
     }
 
+    function removeRewardsMinter(address minter) external onlyOwner {
+        _isRewardsMinter[minter] = false;
+    }
+
     function supplyLeft() public view returns (uint256) {
         return totalSupply() > config.maxSupply ?
             0 : config.maxSupply - totalSupply();  
+    }
+
+    /**************************\
+    |* Contract configuration *|
+    \**************************/
+    function lockMintsForever() external onlyOwner {
+        config.mintLocked = true; 
+    }
+
+    function lockOwnerMintsForever() external onlyOwner {
+        config.ownerMintLocked = true; 
     }
 
 }

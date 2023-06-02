@@ -23,6 +23,8 @@ interface IRewardToken is IERC20 {
      */
     function addRewardsMinter(address minter) external;
 
+    function removeRewardsMinter(address minter) external;
+
     /**
      * @dev View function so `minter` doesn't exced 
      * the allowed amount to mint.
