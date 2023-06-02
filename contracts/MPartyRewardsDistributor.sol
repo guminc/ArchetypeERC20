@@ -6,7 +6,6 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "solady/src/utils/SafeCastLib.sol";
 import "solady/src/utils/MerkleProofLib.sol";
-import "../lib/ArchetypeAuction/contracts/ISharesHolder.sol";
 import "./IRewardToken.sol";
 
 error RewardModelDisabled();
