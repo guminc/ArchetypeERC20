@@ -15,6 +15,7 @@ error MaxRewardsExceded();
 struct Config {
 	bool mintLocked;
 	bool ownerMintLocked;
+    bool rewardsMintersLocked;
     // Wont overflow as long as its below `(2**96)/(10**18)`.
 	uint96 maxSupply;
 }
@@ -61,16 +62,18 @@ contract MPARTY is Ownable, ERC20, IRewardToken {
     }
 
     function addRewardsMinter(address minter) external onlyOwner {
+        require(!config.rewardsMintersLocked);
         _isRewardsMinter[minter] = true;
     }
 
     function removeRewardsMinter(address minter) external onlyOwner {
+        require(!config.rewardsMintersLocked);
         _isRewardsMinter[minter] = false;
     }
 
     function supplyLeft() public view returns (uint256) {
         return totalSupply() > config.maxSupply ?
-            0 : config.maxSupply - totalSupply();  
+            0 : config.maxSupply - totalSupply();
     }
 
     /**************************\
@@ -82,6 +85,10 @@ contract MPARTY is Ownable, ERC20, IRewardToken {
 
     function lockOwnerMintsForever() external onlyOwner {
         config.ownerMintLocked = true; 
+    }
+
+    function lockRewardsMintersForever() external onlyOwner {
+        config.rewardsMintersLocked = true; 
     }
 
 }

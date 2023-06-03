@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "solady/src/utils/SafeCastLib.sol";
 import "solady/src/utils/MerkleProofLib.sol";
 import "./IRewardToken.sol";
+import "./IMPartyRewardsDistributor.sol";
 
 error RewardModelDisabled();
 error MaxSupplyExceded(address rewardToken);
@@ -31,7 +32,7 @@ struct RewardedNftHoldingConfig {
 	mapping (uint256 => uint256) lastTimeClaimed; 
 }
 
-contract MPartyRewardsDistributor {
+contract MPartyRewardsDistributor is IMPartyRewardsDistributor {
     
     RewardedNftHoldingConfig public config;
 

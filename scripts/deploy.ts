@@ -1,6 +1,7 @@
 import { ethers } from "hardhat"
 import { toWei } from "../lib/ArchetypeAuction/scripts/helpers"
 import { getLastTimestamp } from "./helpers"
+import { IERC721__factory } from "../typechain-types"
 
 const deployMpartyTestnet = async () => {
     const TokenFactory = await ethers.getContractFactory('MPARTY')
@@ -35,4 +36,38 @@ const deployMpartyTestnet = async () => {
     console.log(`Rewards distributor: ${rewardsDistributor.address}`)
 }
 
-deployMpartyTestnet().catch(e => console.error(e))
+
+const deployMpartyProd = async () => {
+    const TokenFactory = await ethers.getContractFactory('MPARTY')
+    const RewardsDistributorFactory = await ethers.getContractFactory('MPartyRewardsDistributor')
+    
+    const [deployer, ] = await ethers.getSigners()
+    
+    const mpartyNft = new ethers.Contract(
+        '0x05C63282c87f620aF5a658cBb53548257F3A6186',
+        IERC721__factory.abi,
+        deployer
+    )
+    const mparty = await TokenFactory.connect(deployer).deploy()
+    await mparty.connect(deployer).setMaxSupply(toWei(1_000_000))
+
+    const rewardsDistributor = await RewardsDistributorFactory.connect(deployer).deploy()
+
+    await mparty.connect(deployer).addRewardsMinter(rewardsDistributor.address)
+
+    const rewardsStart = 1684800000
+
+    await rewardsDistributor.connect(deployer).configRewardsForHoldingNft(
+        mparty.address,
+        mpartyNft.address,
+        toWei(1), // 1 $MPARTY reward per day.
+        rewardsStart
+    )
+    
+    console.log(`Reward token: ${mparty.address}`)
+    console.log(`Rewards distributor: ${rewardsDistributor.address}`)
+    console.log(`With timestamp: ${rewardsStart}`)
+    console.log(`With current timestamp: ${await getLastTimestamp()}`)
+}
+
+deployMpartyProd().catch(e => console.error(e))
