@@ -11,7 +11,7 @@ import { getLastTimestamp, sleep, toWei, fromWei } from '../lib/ArchetypeAuction
 import { MPartyRewardsDistributor } from '../typechain-types';
 import { range } from 'fp-ts/lib/ReadonlyNonEmptyArray';
 
-describe('RewardsDistributor', async () => {
+describe('MPartyRewardsDistributor', async () => {
 
     let nftAndArchetypeTokenFactory: OptPartialApplierRes<typeof archetypeRewardingforHoldingNft>
     let REWARDS_DISTRIBUTOR: MPartyRewardsDistributor
@@ -19,7 +19,7 @@ describe('RewardsDistributor', async () => {
     before(async () => {
         // NOTE that all tests should work using the same `rewardsDistributor`, as it
         // is an singleton.
-        const USE_SAME_REWARDS_DISTRIBUTOR_FOR_ALL_TESTS = true;
+        const USE_SAME_REWARDS_DISTRIBUTOR_FOR_ALL_TESTS = false;
 
         REWARDS_DISTRIBUTOR = await ethers.getContractFactory('MPartyRewardsDistributor')
             .then(f => f.deploy())
@@ -46,16 +46,37 @@ describe('RewardsDistributor', async () => {
                 expect(await erc20.isRewardsMinter(rewardsDistributor.address)).to.true
                 expect(await erc20.supplyLeft()).to.equal(toWei(100))
             })
+            
+            it('shouldn\'t allow contract reconfiguration by not owner', async () => {
+                const {rewardsDistributor, erc20, nft} = await nftAndArchetypeTokenFactory({
+                    rewardTokenSupply: 0, rewardTokenMaxSupply: 100
+                })
+
+                const hacker = await getRandomFundedAccount()
+                
+                expect(rewardsDistributor.connect(hacker).disableRewardsForHoldingNft()).reverted
+
+                const TokenFactory = await ethers.getContractFactory('MPARTY')
+                const hackToken = await TokenFactory.deploy()
+
+                expect(rewardsDistributor.connect(hacker).configRewardsForHoldingNft(
+                    hackToken.address,
+                    nft.address,
+                    toWei(1),
+                    await getLastTimestamp() - 100
+                )).reverted
+            })
         })
+        
 
         it('should allow rewards mint', async () => {
             const rewardsPerSecond = 1
             const {
-                rewardsDistributor, erc20, owner, nft, rewardsStart
+                rewardsDistributor, erc20, nft, rewardsStart, deployer
             } = await nftAndArchetypeTokenFactory({rewardsPerSecond})
 
             const rewardedUser = await getRandomFundedAccount()
-            await nft.connect(owner).mint(rewardedUser.address, 1)
+            await nft.connect(deployer).mint(rewardedUser.address, 1)
             
             await rewardsDistributor.connect(rewardedUser).claimRewardsForNftsHeld([1])
             const expectedRewards = (await getLastTimestamp() - rewardsStart) * rewardsPerSecond
@@ -65,13 +86,13 @@ describe('RewardsDistributor', async () => {
 
         it('shouldn\'t allow exceding max rewards supply', async () => {
             const iniSupply = 10
-            const {rewardsDistributor, erc20, owner, nft} = await nftAndArchetypeTokenFactory({
+            const {rewardsDistributor, erc20, deployer, nft} = await nftAndArchetypeTokenFactory({
                 rewardTokenSupply: iniSupply, rewardTokenMaxSupply: iniSupply
             })
             expect(await erc20.totalSupply()).to.equal(toWei(iniSupply))
 
             const rewardedUser = await getRandomFundedAccount()
-            await nft.connect(owner).mint(rewardedUser.address, 1)
+            await nft.connect(deployer).mint(rewardedUser.address, 1)
 
             await rewardsDistributor.connect(rewardedUser).claimRewardsForNftsHeld([1])
             expect(await erc20.balanceOf(rewardedUser.address)).to.equal(0)
@@ -83,14 +104,14 @@ describe('RewardsDistributor', async () => {
             const iniSupply = 10
             const supplyLeft = 0.5
             const rewardsPerSecond = 1
-            const {rewardsDistributor, erc20, owner, nft} = await nftAndArchetypeTokenFactory({
+            const {rewardsDistributor, erc20, deployer, nft} = await nftAndArchetypeTokenFactory({
                 rewardTokenSupply: iniSupply,
                 rewardTokenMaxSupply: iniSupply + supplyLeft,
                 rewardsPerSecond
             })
 
             const rewardedUser = await getRandomFundedAccount()
-            await nft.connect(owner).mint(rewardedUser.address, 1)
+            await nft.connect(deployer).mint(rewardedUser.address, 1)
 
             await rewardsDistributor.connect(rewardedUser).claimRewardsForNftsHeld([1])
             expect(await erc20.balanceOf(rewardedUser.address)).to.equal(toWei(supplyLeft))
@@ -102,7 +123,7 @@ describe('RewardsDistributor', async () => {
             const iniSupply = 0
             const maxSupp = 1000
             const rewardsPerSecond = 2
-            const {rewardsDistributor, erc20, owner, nft, rewardsStart} = await nftAndArchetypeTokenFactory({
+            const {rewardsDistributor, erc20, deployer, nft, rewardsStart} = await nftAndArchetypeTokenFactory({
                 rewardTokenSupply: iniSupply,
                 rewardTokenMaxSupply: maxSupp,
                 rewardsPerSecond
@@ -112,7 +133,7 @@ describe('RewardsDistributor', async () => {
 
             const ids = range(1, 10)
             for (const id of ids) {
-                await nft.connect(owner).mint(rewardedUser.address, id)
+                await nft.connect(deployer).mint(rewardedUser.address, id)
             }
 
             await rewardsDistributor.connect(rewardedUser).claimRewardsForNftsHeld([...ids])

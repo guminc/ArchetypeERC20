@@ -75,23 +75,22 @@ export const archetypeRewardingforHoldingNft = async ({
     const NftFactory = await ethers.getContractFactory('MinimalErc721')
     const RewardsDistributorFactory = await ethers.getContractFactory('MPartyRewardsDistributor')
     
-    const deployer = await getRandomFundedAccount()
-    const owner = await getRandomFundedAccount()
+    const [deployer, ] = await ethers.getSigners()
 
-    const erc20 = await TokenFactory.connect(owner).deploy()
-    await erc20.connect(owner).setMaxSupply(toWei(rewardTokenMaxSupply))
-    await erc20.connect(owner).ownerMint(owner.address, toWei(rewardTokenSupply))
+    const erc20 = await TokenFactory.connect(deployer).deploy()
+    await erc20.connect(deployer).setMaxSupply(toWei(rewardTokenMaxSupply))
+    await erc20.connect(deployer).ownerMint(deployer.address, toWei(rewardTokenSupply))
 
-    const nft = await NftFactory.connect(owner).deploy();
+    const nft = await NftFactory.connect(deployer).deploy();
     
     if (!rewardsDistributor) 
         rewardsDistributor = await RewardsDistributorFactory.connect(deployer).deploy();
 
-    await erc20.connect(owner).addRewardsMinter(rewardsDistributor.address)
+    await erc20.connect(deployer).addRewardsMinter(rewardsDistributor.address)
 
     const rewardsStart = await getLastTimestamp()
 
-    await rewardsDistributor.connect(owner).configRewardsForHoldingNft(
+    await rewardsDistributor.connect(deployer).configRewardsForHoldingNft(
         erc20.address,
         nft.address,
         toWei(rewardsPerSecond * 60 * 60 * 24),
@@ -99,7 +98,7 @@ export const archetypeRewardingforHoldingNft = async ({
     )
 
     return {
-        deployer, owner, erc20, nft, rewardsDistributor, rewardsStart
+        deployer, erc20, nft, rewardsDistributor, rewardsStart
     }
 }
 
