@@ -21,10 +21,7 @@ import "./IRewardToken.sol";
 import "./IMPartyRewardsDistributor.sol";
 
 error RewardModelDisabled();
-error MaxSupplyExceded(address rewardToken);
 error OwnershipError(address forToken, uint256 withId);
-error WrongRewardConfig();
-error AuctionContractNotConfigured();
 
 /**
  * @dev Rewards will be distributed based on `nftContract` holdings.
