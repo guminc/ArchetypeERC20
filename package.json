@@ -12,5 +12,9 @@
     "fp-ts": "^2.15.0",
     "merkletreejs": "^0.3.10",
     "solady": "^0.0.92"
+  },
+  "scripts": {
+  	"postinstall": "git submodule update --init --recursive"
   }
+
 }
