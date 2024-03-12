@@ -13,7 +13,7 @@
 //                                                       Y8b d88P 888
 //                                                        "Y88P"  888
 
-pragma solidity ^0.8.11;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -35,7 +35,6 @@ struct Config {
 	uint96 maxSupply;
     uint96 rewardsPerDay;
     uint32 deploymentTime;
-	bool mintLocked;
 	bool ownerMintLocked;
     bool rewardsMintLocked;
     bool freeClaimsLocked;
@@ -58,7 +57,9 @@ contract Gamer is Ownable, ERC20 {
 
     address immutable private _kawamii;
 
-	constructor(address kawamii, uint96 maxSupply, uint96 rewardsPerDay) ERC20("GamerToken", "GAMER") {
+	constructor(
+        address kawamii, uint96 maxSupply, uint96 rewardsPerDay
+    ) Ownable(msg.sender) ERC20("GamerToken", "GAMER") {
         require(maxSupply > 0);
         require(rewardsPerDay > 0);
 
@@ -70,18 +71,17 @@ contract Gamer is Ownable, ERC20 {
     }
 
 	function setMaxSupply(uint96 maxSupply) external onlyOwner {
+        require(_config.maxSupplyLocked);
+        require(maxSupply > 0);
         require(maxSupply >= totalSupply());
 		_config.maxSupply = maxSupply;
 	}
 
     function setRewardsPerDay(uint96 rewardsPerDay) external onlyOwner {
-        // TODO
+        require(_config.rewardsPerDayLocked);
+        require(rewardsPerDay > 0);
+        _config.rewardsPerDay = rewardsPerDay;
     }
-
-	function _mint(address account, uint256 amount) internal virtual override {
-		if (_config.mintLocked) revert MintLocked();
-		super._mint(account, amount);
-	}
 
 	function ownerMint(address account, uint256 amount) public onlyOwner {
 		if (_config.ownerMintLocked) revert OwnerMintLocked();
@@ -101,7 +101,7 @@ contract Gamer is Ownable, ERC20 {
             // Update amount to claim.
             uint32 lastTimeClaimed = _getLastTimeClaimed(ids[i]);
             unchecked {
-                if (lastTimeClaimed > 0) {
+                if (lastTimeClaimed == 0) {
                     // Calc rewards relative to distribution start.
                     // Wont overflow because:
                     // - `deploymentTime < block.timestamp` always.
@@ -178,10 +178,6 @@ contract Gamer is Ownable, ERC20 {
     }
 
     // Contract Locks.
-    function lockMintsForever() external onlyOwner {
-        _config.mintLocked = true; 
-    }
-
     function lockOwnerMintsForever() external onlyOwner {
         _config.ownerMintLocked = true; 
     }
@@ -192,5 +188,13 @@ contract Gamer is Ownable, ERC20 {
 
     function lockFreeClaimsForever() external onlyOwner {
         _config.freeClaimsLocked = true;
+    }
+
+    function lockMaxSupplyForever() external onlyOwner {
+        _config.maxSupplyLocked = true; 
+    }
+
+    function lockRewardsPerDayForever() external onlyOwner {
+        _config.rewardsPerDayLocked = true; 
     }
 }

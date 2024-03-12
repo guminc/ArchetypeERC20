@@ -1,20 +1,13 @@
 {
   "name": "hardhat-project",
-  "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^2.0.2",
-    "@nomicfoundation/hardhat-verify": "^1.0.0",
-    "hardhat": "^2.14.0",
-    "hardhat-gas-reporter": "^1.0.9"
-  },
   "dependencies": {
-    "@openzeppelin/contracts": "^4.8.3",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.10",
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "@nomiclabs/hardhat-ethers": "^3.0.0-beta.0",
+    "@openzeppelin/contracts": "^5.0.1",
     "dotenv": "^16.1.3",
     "fp-ts": "^2.15.0",
     "merkletreejs": "^0.3.10",
-    "solady": "^0.0.92"
-  },
-  "scripts": {
-  	"postinstall": "git submodule update --init --recursive"
+    "solady": "^0.0.177"
   }
-
 }

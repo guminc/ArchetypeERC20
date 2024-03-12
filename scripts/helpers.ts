@@ -1,17 +1,19 @@
 import { ethers } from 'hardhat';
-import { 
-    toWei 
-} from '../lib/ArchetypeAuction/scripts/helpers'
 import { zip } from 'fp-ts/lib/ReadonlyNonEmptyArray';
 import { ReadonlyNonEmptyArray } from 'fp-ts/lib/ReadonlyNonEmptyArray';
 import * as O from 'fp-ts/lib/Option';
-import { MPartyRewardsDistributor } from '../typechain-types';
+import * as R from 'fp-ts/lib/Random';
+import { flow } from 'fp-ts/lib/function';
+import { time } from '@nomicfoundation/hardhat-network-helpers';
 
+export const toWei = (x: number) => ethers.parseUnits(x.toString(), 'ether')
+export const fromWei = flow(ethers.formatEther, Number)
+export const randomWei = (min: number, max: number) => toWei(R.randomInt(min, max)())
+
+export const or = <T, U>(x: T, y: U) => R.randomElem([x, y])()
+export const zeroOr = <T>(x: T) => R.randomElem([0 as const, x])()
 
 // -------- Random pure utilities --------
-
-export const getLastTimestamp = async () =>
-    (await ethers.provider.getBlock('latest')).timestamp
 
 export const randomAddress = () => `0x${[...Array(40)]
     .map(() => Math.floor(Math.random() * 16).toString(16))
@@ -25,7 +27,7 @@ export const getRandomFundedAccount = async (funds: number = 10) => {
     const [admin, ] = await ethers.getSigners()
     await admin.sendTransaction({to: acc.address, value: toWei(funds)})
     return acc
-};
+}
 
 export const zipIntoObject = <T>(
     keys: ReadonlyNonEmptyArray<string>, values: ReadonlyNonEmptyArray<T>
@@ -56,49 +58,4 @@ export const extractPercent = (percent: string): O.Option<number> => {
     const value = parseFloat(percent.slice(0, -1))
     return isNaN(value) ? O.none : O.some(value)
 };
-
-
-// -------- System utilities -------- 
-
-export const archetypeRewardingforHoldingNft = async ({
-    rewardTokenSupply = 100,
-    rewardTokenMaxSupply = 200,
-    rewardsPerSecond = 1,
-    rewardsDistributor = undefined,
-}: {
-    rewardTokenSupply?: number,
-    rewardTokenMaxSupply?: number,
-    rewardsPerSecond? : number,
-    rewardsDistributor?: MPartyRewardsDistributor,
-}) => {
-    const TokenFactory = await ethers.getContractFactory('MPARTY')
-    const NftFactory = await ethers.getContractFactory('MinimalErc721')
-    const RewardsDistributorFactory = await ethers.getContractFactory('MPartyRewardsDistributor')
-    
-    const [deployer, ] = await ethers.getSigners()
-
-    const erc20 = await TokenFactory.connect(deployer).deploy()
-    await erc20.connect(deployer).setMaxSupply(toWei(rewardTokenMaxSupply))
-    await erc20.connect(deployer).ownerMint(deployer.address, toWei(rewardTokenSupply))
-
-    const nft = await NftFactory.connect(deployer).deploy();
-    
-    if (!rewardsDistributor) 
-        rewardsDistributor = await RewardsDistributorFactory.connect(deployer).deploy();
-
-    await erc20.connect(deployer).addRewardsMinter(rewardsDistributor.address)
-
-    const rewardsStart = await getLastTimestamp()
-
-    await rewardsDistributor.connect(deployer).configRewardsForHoldingNft(
-        erc20.address,
-        nft.address,
-        toWei(rewardsPerSecond * 60 * 60 * 24),
-        rewardsStart 
-    )
-
-    return {
-        deployer, erc20, nft, rewardsDistributor, rewardsStart
-    }
-}
 
