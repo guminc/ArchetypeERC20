@@ -3,15 +3,17 @@ import { getRandomFundedAccount, toWei } from "./helpers"
 import { time } from "@nomicfoundation/hardhat-network-helpers"
 
 export const deployTestToken = async ({
-    maxSupply = 100,
+    maxSupply = 1000,
     rewardsPerSecond = 1
 }: {
     maxSupply?: number | bigint,
     rewardsPerSecond?: number | bigint
 }) => {
+    const owner = await getRandomFundedAccount()
+
     const nft = await ethers
         .getContractFactory('MinimalErc721')
-        .then(f => f.deploy())
+        .then(f => f.connect(owner).deploy())
 
     const user = await getRandomFundedAccount()
     
@@ -27,9 +29,9 @@ export const deployTestToken = async ({
 
     const token = await ethers
         .getContractFactory('Gamer')
-        .then(f => f.deploy(nft.getAddress(), weiMaxSupply, weiPerDay))
+        .then(f => f.connect(owner).deploy(nft.getAddress(), weiMaxSupply, weiPerDay))
 
     const deploymentTime = await time.latest()
     
-    return { nft, user, token, deploymentTime }
+    return { nft, user, token, deploymentTime, owner }
 }

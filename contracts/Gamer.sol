@@ -29,12 +29,11 @@ error FreeClaimsLocked();
 error FreeTokensAlreadyClaimed();
 error NonEligibleForFreeClaim();
 
-// TODO If youre smart about it, you could fit also the total supply 
-// with the whole config in a single slot.
 struct Config {
 	uint96 maxSupply;
     uint96 rewardsPerDay;
     uint32 deploymentTime;
+    // TODO Use flags.
 	bool ownerMintLocked;
     bool rewardsMintLocked;
     bool freeClaimsLocked;
@@ -48,7 +47,6 @@ contract Gamer is Ownable, ERC20 {
         uint256 spacer;
     }
 
-    // TODO Test storage layout for `Config`.
     Config private _config;
     Uint32Map private _packedLastTimeClaimed;
 
@@ -90,9 +88,8 @@ contract Gamer is Ownable, ERC20 {
 
     function claimRewardsForNftsHeld(uint256[] calldata ids) public {
         uint256 amountToClaim;
-        Config memory config = _config;
 
-        if (config.rewardsMintLocked) revert RewardsMintLocked();
+        if (_config.rewardsMintLocked) revert RewardsMintLocked();
         
         for (uint256 i; i < ids.length; ) {
             if (IERC721(_kawamii).ownerOf(ids[i]) != msg.sender)
@@ -109,15 +106,15 @@ contract Gamer is Ownable, ERC20 {
                     // - `rewardsPerDay` is `uint96`.
                     // - Thus, `2**96 * 2**32 <<< 2**256`.
                     amountToClaim += (
-                        block.timestamp - config.deploymentTime
-                    ) * config.rewardsPerDay / 1 days;
+                        block.timestamp - _config.deploymentTime
+                    ) * _config.rewardsPerDay / 1 days;
                 } else {
                     // Calc rewards relative to last claim.
                     // Wont overflow becuase `lastTimeClaimed` will
                     // always be a valid timestamp.
                     amountToClaim += (
                         block.timestamp - lastTimeClaimed
-                    ) * config.rewardsPerDay / 1 days;
+                    ) * _config.rewardsPerDay / 1 days;
                 }
             }
 
@@ -128,7 +125,7 @@ contract Gamer is Ownable, ERC20 {
 
         unchecked {
             // `maxSupply >= totalSupply` is invariant, thus it wont overflow.
-            uint256 maxPossibleAmountToClaim = config.maxSupply - totalSupply();
+            uint256 maxPossibleAmountToClaim = _config.maxSupply - totalSupply();
             if (amountToClaim > maxPossibleAmountToClaim) {
                 amountToClaim = maxPossibleAmountToClaim;
             }
