@@ -40,7 +40,7 @@ const config: HardhatUserConfig = {
     gasReporter: {
         enabled: true,
         coinmarketcap: process.env.CMC_API_KEY,
-        outputFile: 'gasReports'
+        outputFile: 'gasReport.txt'
     },
     etherscan: {
         apiKey: process.env.ETHERSCAN_KEY

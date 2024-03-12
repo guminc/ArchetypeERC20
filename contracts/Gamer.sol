@@ -18,20 +18,29 @@ pragma solidity ^0.8.11;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import "./IRewardToken.sol";
+import "solady/src/utils/MerkleProofLib.sol";
 
 
 error MintLocked();
 error OwnerMintLocked();
-error NotAMinter(address triedToMint);
-error MaxRewardsExceded();
+error RewardsMintLocked();
 error OwnershipError(address forToken, uint256 withId);
+error FreeClaimsLocked();
+error FreeTokensAlreadyClaimed();
+error NonEligibleForFreeClaim();
 
+// TODO If youre smart about it, you could fit also the total supply 
+// with the whole config in a single slot.
 struct Config {
+	uint96 maxSupply;
+    uint96 rewardsPerDay;
+    uint32 deploymentTime;
 	bool mintLocked;
 	bool ownerMintLocked;
-    bool rewardsMintersLocked;
-	uint96 maxSupply;
+    bool rewardsMintLocked;
+    bool freeClaimsLocked;
+    bool maxSupplyLocked;
+    bool rewardsPerDayLocked;
 }
 
 contract Gamer is Ownable, ERC20 {
@@ -40,48 +49,75 @@ contract Gamer is Ownable, ERC20 {
         uint256 spacer;
     }
 
-    // TODO Fix storage layout.
-    Config config;
+    // TODO Test storage layout for `Config`.
+    Config private _config;
     Uint32Map private _packedLastTimeClaimed;
-    uint256 rewardsPerDay;
-    uint256 deploymentTime;
 
-    address kawamii;
+    mapping (address => bool) private _userAlreadyClaimedFreeTokens;
+    bytes32 freeClaimRoot;
 
-	constructor() ERC20("MiladyMakerParty", "MPARTY") {}
+    address immutable private _kawamii;
 
-	function setMaxSupply(uint96 maxSupply) public onlyOwner {
-        require(maxSupply >= totalSupply(), "Max supply can't be below current supply");
-		config.maxSupply = maxSupply;
+	constructor(address kawamii, uint96 maxSupply, uint96 rewardsPerDay) ERC20("GamerToken", "GAMER") {
+        require(maxSupply > 0);
+        require(rewardsPerDay > 0);
+
+        _config.deploymentTime = uint32(block.timestamp);
+        _config.maxSupply = maxSupply;
+        _config.rewardsPerDay = rewardsPerDay;
+
+        _kawamii = kawamii;
+    }
+
+	function setMaxSupply(uint96 maxSupply) external onlyOwner {
+        require(maxSupply >= totalSupply());
+		_config.maxSupply = maxSupply;
 	}
-	
+
+    function setRewardsPerDay(uint96 rewardsPerDay) external onlyOwner {
+        // TODO
+    }
+
 	function _mint(address account, uint256 amount) internal virtual override {
-		if (config.mintLocked) revert MintLocked();
+		if (_config.mintLocked) revert MintLocked();
 		super._mint(account, amount);
 	}
 
 	function ownerMint(address account, uint256 amount) public onlyOwner {
-		if (config.ownerMintLocked) revert OwnerMintLocked();
+		if (_config.ownerMintLocked) revert OwnerMintLocked();
         _mint(account, amount);
 	}
 
     function claimRewardsForNftsHeld(uint256[] calldata ids) public {
-        // TODO Add lock.
         uint256 amountToClaim;
+        Config memory config = _config;
+
+        if (config.rewardsMintLocked) revert RewardsMintLocked();
         
         for (uint256 i; i < ids.length; ) {
-            if (IERC721(kawamii).ownerOf(ids[i]) != msg.sender)
-				revert OwnershipError(kawamii, ids[i]);
+            if (IERC721(_kawamii).ownerOf(ids[i]) != msg.sender)
+				revert OwnershipError(_kawamii, ids[i]);
             
             // Update amount to claim.
-            { 
-                uint32 lastTimeClaimed = _getLastTimeClaimed(ids[i]);
+            uint32 lastTimeClaimed = _getLastTimeClaimed(ids[i]);
+            unchecked {
                 if (lastTimeClaimed > 0) {
                     // Calc rewards relative to distribution start.
-                    amountToClaim += (block.timestamp - deploymentTime) * rewardsPerDay / 1 days;
+                    // Wont overflow because:
+                    // - `deploymentTime < block.timestamp` always.
+                    // - timestamps fit in `uint32`.
+                    // - `rewardsPerDay` is `uint96`.
+                    // - Thus, `2**96 * 2**32 <<< 2**256`.
+                    amountToClaim += (
+                        block.timestamp - config.deploymentTime
+                    ) * config.rewardsPerDay / 1 days;
                 } else {
-                    // Calc rewards relative to last claim
-                    amountToClaim += (block.timestamp - lastTimeClaimed) * rewardsPerDay / 1 days;
+                    // Calc rewards relative to last claim.
+                    // Wont overflow becuase `lastTimeClaimed` will
+                    // always be a valid timestamp.
+                    amountToClaim += (
+                        block.timestamp - lastTimeClaimed
+                    ) * config.rewardsPerDay / 1 days;
                 }
             }
 
@@ -90,8 +126,12 @@ contract Gamer is Ownable, ERC20 {
             unchecked { i++; }
         }
 
-        if (amountToClaim + totalSupply() > config.maxSupply) {
-            amountToClaim = config.maxSupply - totalSupply();
+        unchecked {
+            // `maxSupply >= totalSupply` is invariant, thus it wont overflow.
+            uint256 maxPossibleAmountToClaim = config.maxSupply - totalSupply();
+            if (amountToClaim > maxPossibleAmountToClaim) {
+                amountToClaim = maxPossibleAmountToClaim;
+            }
         }
 
         _mint(msg.sender, amountToClaim);
@@ -113,18 +153,44 @@ contract Gamer is Ownable, ERC20 {
             result := and(0xffffffff, shr(shl(5, and(index, 7)), sload(s)))
         }
     }
+    
+    function claimFreeTokens(address user, uint96 amountToClaim, bytes32[] memory proof) external {
+        if (_config.freeClaimsLocked) 
+            revert FreeClaimsLocked();
+        if (_userAlreadyClaimedFreeTokens[user]) 
+            revert FreeTokensAlreadyClaimed();
+
+        _userAlreadyClaimedFreeTokens[user] = true;
+
+        if (!MerkleProofLib.verify(
+            proof, freeClaimRoot, keccak256(abi.encodePacked(user, amountToClaim))
+        )) revert NonEligibleForFreeClaim();
+
+        unchecked {
+            // `maxSupply >= totalSupply` is invariant, thus it wont overflow.
+            uint96 maxPossibleAmountToClaim = uint96(_config.maxSupply - totalSupply());
+            if (amountToClaim > maxPossibleAmountToClaim) {
+                amountToClaim = maxPossibleAmountToClaim;
+            }
+        }
+
+        _mint(user, amountToClaim);
+    }
 
     // Contract Locks.
     function lockMintsForever() external onlyOwner {
-        config.mintLocked = true; 
+        _config.mintLocked = true; 
     }
 
     function lockOwnerMintsForever() external onlyOwner {
-        config.ownerMintLocked = true; 
+        _config.ownerMintLocked = true; 
     }
 
-    function lockRewardsMintersForever() external onlyOwner {
-        config.rewardsMintersLocked = true; 
+    function lockRewardsMintForever() external onlyOwner {
+        _config.rewardsMintLocked = true;
     }
 
+    function lockFreeClaimsForever() external onlyOwner {
+        _config.freeClaimsLocked = true;
+    }
 }
